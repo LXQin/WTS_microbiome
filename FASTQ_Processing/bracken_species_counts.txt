@@ -1,0 +1,20 @@
+name	taxonomy_id	taxonomy_lvl	kraken_assigned_reads	added_reads	new_est_reads	fraction_total_reads
+Blautia wexlerae	418240	S	13	95	108	0.00277
+[Ruminococcus] lactaris	46228	S	12	25	37	0.00095
+Mediterraneibacter gnavus	33038	S	11	31	42	0.00108
+Anaerostipes hadrus	649756	S	37	137	174	0.00446
+Anaerobutyricum hallii	39488	S	33	52	85	0.00218
+Dorea formicigenerans	39486	S	12	42	54	0.00139
+Flavonifractor plautii	292800	S	29	34	63	0.00162
+Lawsonibacter asaccharolyticus	2108523	S	11	14	25	0.00064
+Bacillus subtilis	1423	S	13	32039	32052	0.82233
+Bacillus cabrialesii	2487276	S	13	72	85	0.00218
+Thomasclavelia spiroformis	29348	S	11	7	18	0.00046
+Cutibacterium acnes	1747	S	51	127	178	0.00457
+Cutibacterium granulosum	33011	S	44	49	93	0.00239
+Phocaeicola vulgatus	821	S	62	70	132	0.00339
+Bacteroides caccae	47678	S	10	34	44	0.00113
+Methanocaldococcus sp. FS406-22	644281	S	377	834	1211	0.03107
+Methanocaldococcus jannaschii	2190	S	41	4460	4501	0.11548
+Methanocaldococcus lauensis	2546128	S	11	28	39	0.00100
+Homo sapiens	9606	S	13	14	27	0.00069
