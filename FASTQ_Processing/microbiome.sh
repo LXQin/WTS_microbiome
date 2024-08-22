@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # Set base and fastq directory and reference genome database
+## fastq_dir is the input file path (path to FASTQ), please move all the FASTQ files into this path (without any subfolders)
 fastq_dir="/home/nfs/pengy3/microbiome/data"
+## base_dir is the output file path, all the bam and report files generated will be stored here
 base_dir="/home/nfs/pengy3/microbiome_test"
+## Path to reference genome database
 hg38_ref="/home/nfs/pengy3/microbiome/hg38/index/hg38.fa"
 CHM13_ref="/home/nfs/pengy3/microbiome/CHM13/index/chm13v2.0"
 kraken2_ref="/home/nfs/pengy3/microbiome/kraken2/16GB_standard_db"
@@ -86,7 +89,8 @@ for file in "$fastq_dir"/*_1.fastq; do
     echo "Starting kraken2 classification"
     kraken2 --db "$kraken2_ref" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/${sample_id}_report.txt"
     
-    # 4. Delete unused files to minimize memory utilizity
+    # 4. Delete unused files to minimize memory utility
+    echo "Start to delete unnecessary intermediate files"
     find "$trimmed_dir" -type f -delete
     find "$base_dir/hg38" -type f -delete
     find "$base_dir/CHM13/unmapped_files" -type f -delete
