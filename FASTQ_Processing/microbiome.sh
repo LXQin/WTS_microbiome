@@ -55,7 +55,7 @@ for file in "$fastq_dir"/*_1.fastq; do
     samtools view -h "$output_dir/bam/${sample_id}_sorted.bam" | grep -v "chrM" | samtools view -b -o "$output_dir/bam/${sample_id}_no_mit.bam" -
     samtools view -b -f 4 -f 8 "$output_dir/bam/${sample_id}_no_mit.bam" > "$output_dir/bam/${sample_id}_unmapped.bam"
     # conserve mitochondria genes
-    samtools view -b -f 4 -f 8 "$output_dir/bam/${sample_id}_sorted.bam" > "$output_dir/bam/${sample_id}_unmapped.bam"
+    # samtools view -b -f 4 -f 8 "$output_dir/bam/${sample_id}_sorted.bam" > "$output_dir/bam/${sample_id}_unmapped.bam"
     
     bedtools bamtofastq -i "$output_dir/bam/${sample_id}_unmapped.bam" -fq "$output_dir/unmapped_files/${sample_id}_unmapped_1.fastq" -fq2 "$output_dir/unmapped_files/${sample_id}_unmapped_2.fastq"
 
