@@ -8,23 +8,29 @@ base_dir="/home/nfs/pengy3/microbiome_test"
 ## Path to reference genome database
 hg38_ref="/home/nfs/pengy3/microbiome/hg38/index/hg38.fa"
 CHM13_ref="/home/nfs/pengy3/microbiome/CHM13/index/chm13v2.0"
-kraken2_ref="/home/nfs/pengy3/microbiome/kraken2/16GB_standard_db"
+kraken2_ref_16="/home/nfs/pengy3/microbiome/kraken2/16GB_standard_db"
+kraken2_ref_8="/home/nfs/pengy3/microbiome/kraken2/8GB_standard_db"
+## Common sample ID list
+samples_dir="/home/nfs/pengy3/microbiome/sh_files/filter_ID.csv"
 
 echo "Base Directory: $base_dir"
 echo "FASTQ Directory: $fastq_dir"
 echo "Reference Directory:"
 echo "hg38: $hg38_ref"
 echo "CHM13: $CHM13_ref"
-echo "kraken2 standard database: $kraken2_ref"
+echo "kraken2 16GB standard database: $kraken2_ref_16"
+echo "kraken2 8GB standard database: $kraken2_ref_8"
 
+# Read common sample ID list
+sample_IDs=$(tail -n +2 "$samples_dir")
 for file in "$fastq_dir"/*_1.fastq; do
   # Extract sample id
   sample_id=$(basename "$file" _1.fastq)
-  if [ -f "$fastq_dir/${sample_id}_2.fastq" ]; then
+  
+  # Check samples in the sample list have paired FASTQ files
+  if [ -f "$fastq_dir/${sample_id}_2.fastq" ] && echo "$sample_IDs" | grep -qw "$sample_id"; then
     # 0. Output paired sample id
-    echo "Processing sample with files:"
-    echo "$fastq_dir/${sample_id}_1.fastq"
-    echo "$fastq_dir/${sample_id}_2.fastq"
+    echo "Processing paired sample $sample_id"
     
     # 1. hg38 & trimmed
     ## Set directory
@@ -93,7 +99,8 @@ for file in "$fastq_dir"/*_1.fastq; do
     
     ## 16GB standard database of kraken2
     echo "Starting kraken2 classification"
-    kraken2 --db "$kraken2_ref" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/reports/${sample_id}_report.txt"
+    kraken2 --db "$kraken2_ref_16" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/reports/${sample_id}_report_16.txt"
+    kraken2 --db "$kraken2_ref_8" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/reports/${sample_id}_report_8.txt"
     
     # 4. Delete unused files to minimize memory utility
     echo "Start to delete unnecessary intermediate files"
@@ -102,7 +109,8 @@ for file in "$fastq_dir"/*_1.fastq; do
     find "$base_dir/CHM13/unmapped_files" -type f -delete
 
     # 5. Bracken
-    # echo "From report to counts using bracken"
-    # bracken -d "$kraken2_ref" -i "$output_dir/reports/${sample_id}_report.txt" -o "$output_dir/counts/${sample_id}_counts.txt" -l S
+    echo "From report to counts using bracken"
+    bracken -d "$kraken2_ref_16" -i "$output_dir/reports/${sample_id}_report_16.txt" -o "$output_dir/counts/${sample_id}_counts_16.txt" -l S
+    bracken -d "$kraken2_ref_8" -i "$output_dir/reports/${sample_id}_report_8.txt" -o "$output_dir/counts/${sample_id}_counts_8.txt" -l S
   fi
 done
