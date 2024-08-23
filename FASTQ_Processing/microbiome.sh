@@ -82,22 +82,27 @@ for file in "$fastq_dir"/*_1.fastq; do
     # 3. kraken2
     ## Set directory
     input_dir="$base_dir/CHM13/unmapped_files"
-    output_dir="$base_dir/kraken2/reports"
+    output_dir="$base_dir/kraken2"
     
     ## Create necessary directories
     if [ ! -d "$output_dir" ]; then
       echo "Creating directories needed for Kraken2."
-      mkdir -p "$output_dir"
+      mkdir -p "$output_dir/reports"
+      mkdir -p "$output_dir/counts"
     fi
     
     ## 16GB standard database of kraken2
     echo "Starting kraken2 classification"
-    kraken2 --db "$kraken2_ref" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/${sample_id}_report.txt"
+    kraken2 --db "$kraken2_ref" --paired "$input_dir/${sample_id}_final_unmapped_1.fastq" "$input_dir/${sample_id}_final_unmapped_2.fastq" --report "$output_dir/reports/${sample_id}_report.txt"
     
     # 4. Delete unused files to minimize memory utility
     echo "Start to delete unnecessary intermediate files"
     find "$trimmed_dir" -type f -delete
     find "$base_dir/hg38" -type f -delete
     find "$base_dir/CHM13/unmapped_files" -type f -delete
+
+    # 5. Bracken
+    # echo "From report to counts using bracken"
+    # bracken -d "$kraken2_ref" -i "$output_dir/reports/${sample_id}_report.txt" -o "$output_dir/counts/${sample_id}_counts.txt" -l S
   fi
 done
