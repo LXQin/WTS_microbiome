@@ -1,0 +1,11 @@
+Methods: FASTQ File Preprocessing and Alignment
+
+We used Samtools v1.6, Bowtie2 v2.5.4, GCC 12.3.0, Bedtools v2.31.1, Trim Galore v0.6.10 and CHM13 v2.0 for processing paired-end FASTQ files. 
+First, Trim Galore was applied to remove low-quality bases and adapter sequences from paired-end reads. 
+Trimmed reads were aligned to the hg38 reference genome using BWA-MEM, with unmapped reads extracted using Samtools flags -f 4 (unmapped reads) and -f 8 (properly paired unmapped reads). 
+Mitochondrial reads (chrM) were excluded from the BAM files to focus on bacteria, and further unmapped reads were saved for downstream analysis. 
+The remaining unmapped reads were re-aligned to the CHM13 reference genome with Bowtie2, and any further unmapped reads were extracted. 
+These unmapped reads were classified using Kraken2 against 16GB and 8GB databases to identify non-human sequences. 
+Classification results were refined with Bracken, using the -l G parameter to estimate species abundance at the genus level and -t 1 to set the threshold for read count filtering.
+Key parameters, such as threading options (-p for Bowtie2 and -t for BWA-MEM), were set to 8 to optimize computational efficiency. 
+The pipeline effectively processes reads to identify microbial sequences, excluding human nuclear and mitochondrial genes.
