@@ -119,8 +119,15 @@ for file in "$fastq_dir"/*_1.fastq; do
 done
 }
 
-folder_list=($(find /media/pengy3 -maxdepth 1 -type d))
-for folder in "${folder_list[@]}"; do
-  echo "$folder"
-  process_one_path "${folder}"
+fastq_path="/media/pengy3/"
+data_paths=("11.6" "11.24" "10.10" "10.12" "10.14" "10.15" "8.26fastq" "8.29fastq" "12.31" "1.5" "1.23" "1.26" "1.20" "1.15" "11.27" "11.29" "11.30" "11.4" "2.1" "2.4" "2.14")
+for i in "${data_paths[@]}"; do
+  process_one_path "${fastq_path}${i}"
 done
+
+
+#folder_list=($(find /media/pengy3 -maxdepth 1 -type d))
+#for folder in "${folder_list[@]}"; do
+#  echo "$folder"
+#  process_one_path "${folder}"
+#done

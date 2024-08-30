@@ -1,10 +1,11 @@
 #!/bin/bash
 
+process_one_path() {
 # Set base and fastq directory and reference genome database
 ## fastq_dir is the input file path (path to FASTQ), please move all the FASTQ files into this path (without any subfolders)
-fastq_dir="/home/nfs/pengy3/microbiome/data"
+fastq_dir=$1
 ## base_dir is the output file path, all the bam and report files generated will be stored here
-base_dir="/home/nfs/pengy3/microbiome_test"
+base_dir="/home/nfs/pengy3/Intact_WTS"
 ## Path to reference genome database
 hg38_ref="/home/nfs/pengy3/microbiome/hg38/index/hg38.fa"
 CHM13_ref="/home/nfs/pengy3/microbiome/CHM13/index/chm13v2.0"
@@ -23,6 +24,7 @@ echo "kraken2 8GB standard database: $kraken2_ref_8"
 
 # Read common sample ID list
 sample_IDs=$(tail -n +2 "$samples_dir")
+
 for file in "$fastq_dir"/*_1.fastq; do
   # Extract sample id
   sample_id=$(basename "$file" _1.fastq)
@@ -54,7 +56,7 @@ for file in "$fastq_dir"/*_1.fastq; do
     
     ## bwa
     echo "Starting bwa"
-    bwa mem -t 8 "$hg38_ref" "$trimmed_r1" "$trimmed_r2" | samtools sort -@ 8 -O bam -o "$output_dir/bam/${sample_id}_sorted.bam"
+    bwa mem -t 8 "$hg38_ref" "$trimmed_r1" "$trimmed_r2" | samtools sort -@ 8 -O bam -T "${trimmed_dir}/${sample_id}_tmp" -o "$output_dir/bam/${sample_id}_sorted.bam"
     samtools index -@ 8 "$output_dir/bam/${sample_id}_sorted.bam"
     
     # exclude mitochondria genes
@@ -104,13 +106,21 @@ for file in "$fastq_dir"/*_1.fastq; do
     
     # 4. Delete unused files to minimize memory utility
     echo "Start to delete unnecessary intermediate files"
-    find "$trimmed_dir" -type f -delete
-    find "$base_dir/hg38" -type f -delete
-    find "$base_dir/CHM13/unmapped_files" -type f -delete
+    find "$trimmed_dir" -type f -name "${sample_id}*" -delete
+    find "$base_dir/hg38/bam" -type f -name "${sample_id}*" -delete
+    find "$base_dir/hg38/unmapped_files" -type f -name "${sample_id}*" -delete
+    find "$base_dir/CHM13/unmapped_files" -type f -name "${sample_id}*" -delete
 
     # 5. Bracken
     echo "From report to counts using bracken"
-    bracken -d "$kraken2_ref_16" -i "$output_dir/reports/${sample_id}_report_16.txt" -o "$output_dir/counts/${sample_id}_counts_16.txt" -l S
-    bracken -d "$kraken2_ref_8" -i "$output_dir/reports/${sample_id}_report_8.txt" -o "$output_dir/counts/${sample_id}_counts_8.txt" -l S
+    bracken -d "$kraken2_ref_16" -i "$output_dir/reports/${sample_id}_report_16.txt" -o "$output_dir/counts/${sample_id}_counts_16.txt" -l G -t 1
+    bracken -d "$kraken2_ref_8" -i "$output_dir/reports/${sample_id}_report_8.txt" -o "$output_dir/counts/${sample_id}_counts_8.txt" -l G -t 1
   fi
+done
+}
+
+folder_list=($(find /media/pengy3 -maxdepth 1 -type d))
+for folder in "${folder_list[@]}"; do
+  echo "$folder"
+  process_one_path "${folder}"
 done
