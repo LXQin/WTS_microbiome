@@ -8,4 +8,6 @@ The remaining unmapped reads were re-aligned to the CHM13 reference genome with 
 These unmapped reads were classified using Kraken2 against 16GB and 8GB databases to identify non-human sequences. 
 Classification results were refined with Bracken, using the -l G parameter to estimate species abundance at the genus level and -t 1 to set the threshold for read count filtering.
 Key parameters, such as threading options (-p for Bowtie2 and -t for BWA-MEM), were set to 8 to optimize computational efficiency. 
-The pipeline effectively processes reads to identify microbial sequences, excluding human nuclear and mitochondrial genes.
+The pipeline effectively processes the reads to identify microbial sequences, excluding human nuclear and mitochondrial genes.
+
+We filtered 143 samples in our initial analysis, yet only obtained the mapped results of 107 samples due to memory limitation. Among these 107 samples, hg38 identified an average of 99.78% reads mapped to the human genome and CHM13 extracted an additional 10.23% reads of the human genome on average.
