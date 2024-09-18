@@ -10,4 +10,4 @@ Classification results were refined with Bracken, using the -l G parameter to es
 Key parameters, such as threading options (-p for Bowtie2 and -t for BWA-MEM), were set to 8 to optimize computational efficiency. 
 The pipeline effectively processes the reads to identify microbial sequences, excluding human nuclear and mitochondrial genes.
 
-We filtered 143 samples in our initial analysis, yet only obtained the mapped results of 107 samples due to memory limitation. Among these 107 samples, hg38 identified an average of 99.78% reads mapped to the human genome and CHM13 extracted an additional 10.23% reads of the human genome on average.
+In our initial analysis, we filtered 143 samples, but due to memory limitations, we were able to obtain mapped results for only 107 samples. Among these 107 samples, an average of 99.78% of paired-end reads were mapped to the human genome (hg38), while an additional 10.23% of reads were successfully aligned to the CHM13 human genome.
