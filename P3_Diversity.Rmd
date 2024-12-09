@@ -1,0 +1,430 @@
+---
+title: "Alpha/Beta Diversity"
+author: "Ying Xiang"
+date: "2024-02-14"
+output: html_document
+---
+
+This code generates three types of images based on beta diversity:
+
+- 1. PCoA plots
+
+- 2. Heatmaps based on beta diversity matrix
+
+- 3. Violin plots of distance between pseudo-sample and others
+
+And boxplot for alpha diversity:
+
+```{r load packages}
+library(vegan)
+library(ggplot2)
+library(ggpubr) 
+library(patchwork)
+library(ComplexHeatmap)
+library(circlize)
+library(matrixStats)
+library(dplyr)
+library(tidyverse)
+library(ggsci)
+```
+ 
+
+```{r load data}
+Raw_M_16S = readRDS("Raw_M_16S.rds")
+Raw_M_WTS = readRDS("Raw_M_WTS.rds")
+
+Matched_M_16S = readRDS("Matched_M_16S.rds")
+Matched_M_WTS = readRDS("Matched_M_WTS.rds")
+
+Filtered_M_16S = readRDS("Filtered_M_16S.rds")
+Filtered_M_WTS = readRDS("Filtered_M_WTS.rds")
+
+TSS_M_16S = readRDS("TSS_M_16S.rds")
+TSS_M_WTS = readRDS("TSS_M_WTS.rds")
+
+DRP_M_16S = readRDS("DRP_M_16S.rds")
+DRP_M_WTS = readRDS("DRP_M_WTS.rds")
+
+DV_M_16S = readRDS("DV_M_16S.rds")
+DV_M_WTS = readRDS("DV_M_WTS.rds")
+
+TMM_M_16S = readRDS("TMM_M_16S.rds")
+TMM_M_WTS = readRDS("TMM_M_WTS.rds")
+
+CSS_M_16S = readRDS("CSS_M_16S.rds")
+CSS_M_WTS = readRDS("CSS_M_WTS.rds")
+
+GMPR_M_16S = readRDS("GMPR_M_16S.rds")
+GMPR_M_WTS = readRDS("GMPR_M_WTS.rds")
+
+Wrench_M_16S = readRDS("Wrench_M_16S.rds")
+Wrench_M_WTS = readRDS("Wrench_M_WTS.rds")
+```
+
+
+# Alpha diversity
+
+```{r compute alpha diversity values}
+Datasets <- c("Raw","Matched","Filtered", "TSS","TMM","CSS","DRP","DV", "GMPR","Wrench")
+alpha_df <- setNames(data.frame(matrix(ncol = 5, nrow = 0)), c("sample",  "diversity", "alpha_type", "Platform", "Dataset"))
+for (type in c("16S","WTS")){
+  for(dataset in Datasets){
+    eval(parse(text  =  paste0("ps = ", dataset, "_M_", type)))
+    count_dat <- round(ps@otu_table@.Data)
+    chao <- estimateR(t(count_dat))["S.chao1",]
+    shannon <- diversity(t(count_dat), index = "shannon")
+    alpha_df <- rbind(alpha_df, data.frame(sample = names(chao),
+                                           diversity = chao,
+                                           alpha_type = "Chao1 index",
+                                           Platform = type,
+                                           Dataset = dataset))
+    alpha_df <- rbind(alpha_df, data.frame(sample = names(shannon),
+                                           diversity = shannon,
+                                           alpha_type = "Shannon index",
+                                           Platform = type,
+                                           Dataset = dataset))
+  }
+  }
+
+```
+
+```{r alpha diversity visualization}
+alpha_df$Dataset <- factor(alpha_df$Dataset, levels = c("Raw", "Matched", "Filtered", "TSS", "TMM",
+                                                            "CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                              labels =  c("Raw", "Matched", "Filtered", "F-TSS", "F-TMM", "F-CSS", 
+                                          "F-GMPR",  "F-DESeq_RLE", "F-DESeq_VS", "F-Wrench"))
+
+alpha_df_med <- alpha_df %>% group_by(alpha_type, Platform, Dataset) %>% summarise(median = round(median(diversity),4), sd = round(sd(diversity),4))
+pivot_wider(alpha_df_med, names_from = "Platform", values_from = c("median","sd"))
+write.csv(pivot_wider(alpha_df_med, names_from = "Platform", values_from = c("median","sd")), file = "../Figures/Alpha_measure.csv", row.names = FALSE)
+
+
+#Perform Welch t-test
+Welch_results <- alpha_df %>%
+  group_by(alpha_type, Dataset) %>%
+  summarise(t_test_p_value = t.test(x=diversity[Platform == unique(Platform)[1]], 
+                                    y=diversity[Platform == unique(Platform)[2]],
+                                    paired = TRUE)$p.value)
+
+#Based on the p-values from the Welch t tests between WTS and 16S, annotate the boxplot to indicate significance.
+Welch_results$signif <- as.character(round(-log10(Welch_results$t_test_p_value)))
+print(Welch_results)
+
+#Perform Kolmogorov-Smirnov test
+KS_results <- alpha_df %>%
+ group_by(alpha_type, Dataset) %>%
+ summarise(
+   ks_test_p_value = ks.test(
+     diversity[Platform == unique(Platform)[1]],
+     diversity[Platform == unique(Platform)[2]],
+     exact = NULL
+   )$p.value,
+   .groups = "drop"
+ )
+
+print(KS_results)
+
+Wilcoxon_results <- alpha_df %>%
+  group_by(alpha_type, Dataset) %>%
+  summarise(
+    Wilcoxon_test_p_value = wilcox.test(
+      diversity[Platform == unique(Platform)[1]], 
+      diversity[Platform == unique(Platform)[2]], 
+      paired = TRUE 
+    )$p.value,
+    .groups = "drop" 
+  )
+print(Wilcoxon_results)
+
+chao1_1 <- alpha_df[alpha_df$alpha_type == "Chao1 index" & alpha_df$Dataset == "Raw",]
+p1 <- ggplot(chao1_1, aes(x = Dataset, y = diversity)) +
+  geom_boxplot(aes(fill = Platform),width = 0.75) +
+  labs(y = "Chao1 Index")+
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 840))+
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank()
+    # axis.text.x = element_blank()
+  )+
+  geom_text(data = Welch_results[1,], aes(x = Dataset, y = 0, label = signif), 
+            size = 5, vjust = -19.5)+
+  scale_fill_aaas()
+
+chao1_2 <- alpha_df[alpha_df$alpha_type == "Chao1 index" & alpha_df$Dataset != "Raw",]
+p2 <- ggplot(chao1_2, aes(x = Dataset, y = diversity)) +
+  geom_boxplot(aes(fill = Platform),width = 0.75) +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 210), position = "right")+
+  theme(
+    legend.position = "none",
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank()
+    # axis.text.x = element_blank()
+  )+
+  geom_text(data = Welch_results[2:10,], aes(x = Dataset, y = 0, label = signif), 
+            size = 5, vjust = -19.5)+
+  scale_fill_aaas()
+
+p_upper <- p1 + plot_spacer() + p2 + plot_layout(nrow = 1, widths = c(1, 0.4, 9))
+
+shannon <- alpha_df[alpha_df$alpha_type == "Shannon index" ,]
+
+p3 <- ggplot(shannon, aes(x = Dataset, y = diversity)) +
+  geom_boxplot(aes(fill = Platform),na.rm = TRUE) +
+  labs(y = "Shannon Index", fill = "")+
+  scale_x_discrete(drop = FALSE)+
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.x = element_blank(),
+  )+
+  geom_text(data = Welch_results[Welch_results$alpha_type == "Shannon index",], aes(x = Dataset, y = 0, label = signif), 
+            size = 5, vjust = -19.5)+
+  scale_fill_aaas()
+p3
+p_alpha <- p_upper / p3 + plot_layout(heights = c(1, 1))
+ggsave(p_alpha, filename = paste0("../Figures/Alpha_boxplot.pdf"), width = 12, height = 8, units = "in")
+```
+
+# Beta diversity
+
+
+```{r beta diversity PCoA function}
+beta_PCoA  <-  function(data_WTS, data_16S, norm, method, save = FALSE, print_p = FALSE){
+  # data_WTS: phyloseq object for WTS
+  # data_16S: phyloseq object for 16S
+  # norm: name of the dataset
+  # method: beta diversity measures
+  otu_16S <- t(data_16S@otu_table@.Data)
+  dist_16S <- vegdist(otu_16S, method = method)
+  PCoA_16S <-  cmdscale(dist_16S, eig = TRUE)
+  eigen_16S <- PCoA_16S$eig
+  var_percent_16S <- eigen_16S / sum(eigen_16S) * 100
+  df_16S <- data.frame(PCoA_16S$points, sample = rownames(PCoA_16S$points), Diagnosis = data_16S@sam_data@.Data[[5]])
+  p_16S <- ggplot(data = df_16S, aes(x = X1,y = X2, color = Diagnosis))+
+    geom_point(size=3)+
+    theme_bw()+
+    stat_ellipse(aes(fill=Diagnosis), geom = "polygon", level=0.9, linetype = 2, size=0.5,  alpha=0.2, show.legend = T)+
+    labs(x = paste("16S: PC1 (",round(var_percent_16S[1],1),"%)",sep=""),
+         y = paste("16S: PC2 (",round(var_percent_16S[2],1),"%)",sep=""))
+
+  otu_WTS <- t(data_WTS@otu_table@.Data)
+  dist_WTS <- vegdist(otu_WTS, method = method)
+  PCoA_WTS <-  cmdscale(dist_WTS, eig = TRUE)
+  eigen_WTS <- PCoA_WTS$eig
+  var_percent_WTS <- eigen_WTS / sum(eigen_WTS) * 100
+  df_WTS <- data.frame(PCoA_WTS$points, sample = rownames(PCoA_WTS$points), Diagnosis = data_WTS@sam_data@.Data[[5]])
+  p_WTS <- ggplot(data = df_WTS, aes(x = X1,y = X2, color = Diagnosis))+
+    geom_point(size=3)+
+    theme_bw()+
+    stat_ellipse(aes(fill=Diagnosis), geom = "polygon", level=0.9, linetype = 2, size=0.5,  alpha=0.2, show.legend = T)+
+    labs(x = paste("WTS: PC1 (",round(var_percent_WTS[1],1),"%)",sep=""),
+         y = paste("WTS: PC2 (",round(var_percent_WTS[2],1),"%)",sep=""))
+
+  
+    p <- annotate_figure(ggarrange(p_16S, p_WTS, ncol=2, common.legend =T, legend = "bottom"),
+                         top = text_grob(paste(norm," (",ifelse(method == "bray", "Bray Curtis", "Jaccard"),")",sep = "")))
+    if(save){
+    ggsave(paste("../Figures/PCoA_", method, "_", norm, ".pdf", sep = ""), p, width = 6, height = 3.5, units = "in")
+    }
+    if(print_p){print(p)}
+}
+```
+
+```{r beta diversity combined PCoA function}
+beta_combined_PCoA  <-  function(data_WTS, data_16S, norm, method, save = FALSE, print_p = FALSE){
+  otu_16S <- t(data_16S@otu_table@.Data)
+  otu_WTS <- t(data_WTS@otu_table@.Data)
+  otu <- rbind(otu_16S,otu_WTS)
+  
+  dist_16S_WTS <- vegdist(otu, method = method)
+  PCoA_16S_WTS <-  cmdscale(dist_16S_WTS, eig = TRUE)
+  eigen_16S <- PCoA_16S_WTS$eig
+  var_percent_16S_WTS <- eigen_16S / sum(eigen_16S) * 100
+  df_16S_WTS <- data.frame(PCoA_16S_WTS$points, sample = rownames(PCoA_16S_WTS$points), Diagnosis = data_16S@sam_data@.Data[[5]],Platform = c(rep("16S",nrow(otu_16S)), rep("WTS",nrow(otu_WTS))))
+  p_16S_WTS <- ggplot(data = df_16S_WTS, aes(x = X1, y = X2))+
+    geom_point(size = 2, show.legend = c(color = TRUE, shape = TRUE), aes(shape = Diagnosis, color = Platform))+
+    theme_bw()+
+    stat_ellipse(aes(fill=Platform), geom = "polygon", level = .9, linetype = 2, size=0.5,  alpha=0.2, show.legend = FALSE)+
+    labs(x = paste("PC1 (",round(var_percent_16S_WTS[1],1),"%)",sep=""),
+         y = paste("PC2 (",round(var_percent_16S_WTS[2],1),"%)",sep=""),
+         color = "",
+         title = paste0(norm," (" ,ifelse(method == 'jaccard', "Jaccard","Bray Curtis"),")"))+
+    scale_shape_manual(values = c(2,3,16), name = "") +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5))
+    if(save){
+    ggsave(paste("../Figures/PCoA_combined_", method, "_", norm, ".pdf", sep = ""), p_16S_WTS, width = 4.5, height = 3.5, units = "in")
+    }
+    if(print_p){print(p_16S_WTS)}
+}
+```
+
+```{r beta diversity combined heatmap function}
+beta_heatmap <- function(data_WTS, data_16S, norm, method, save = FALSE, print_p = FALSE){
+  otu_16S <- t(data_16S@otu_table@.Data)
+  Diagnosis <- data_16S@sam_data@.Data[[5]]
+  otu_16S <- otu_16S[order(factor(Diagnosis, levels=c("CD","UC","nonIBD"))),]
+  dist_16S <- as.matrix(vegdist(otu_16S, method=method, upper=F))
+
+  otu_WTS <- t(data_WTS@otu_table@.Data)
+  Diagnosis <- data_WTS@sam_data@.Data[[5]]
+  otu_WTS <- otu_WTS[order(factor(Diagnosis, levels=c("CD","UC","nonIBD"))),]
+  dist_WTS <- as.matrix(vegdist(otu_WTS, method=method, upper=F))
+  
+  combined_dist <- matrix(0, nrow = nrow(dist_16S), ncol = ncol(dist_16S))
+  
+  combined_dist[lower.tri(dist_16S)] <- dist_16S[lower.tri(dist_16S)]
+  combined_dist[upper.tri(dist_WTS)] <- dist_WTS[upper.tri(dist_WTS)]
+  
+  rownames(combined_dist) <- rownames(dist_16S)
+  colnames(combined_dist) <- colnames(dist_WTS)
+    
+  p_combined <- Heatmap(combined_dist,
+                     row_order=rownames(otu_16S),
+                     column_order=rownames(otu_16S),
+                     split=sort(factor(Diagnosis,levels=c("CD","UC","nonIBD"),labels = c("16S-CD","16S-UC","16S-nonIBD"))),
+                     column_split=sort(factor(Diagnosis,levels=c("CD","UC","nonIBD"),labels = c("WTS-CD","WTS-UC","WTS-nonIBD"))),
+                     row_gap=unit(3, "mm"),
+                     column_gap=unit(3, "mm"),
+                     col=colorRamp2(c(0, 1), c( "#fff5b1", "#d72d1f")),
+                     name=paste(ifelse(method == "bray","Bray Curtis, ","Jaccard, "), norm, sep = ""),
+                     show_row_names = F,
+                     show_column_names = F,
+                    heatmap_legend_param = list(direction = "horizontal"))
+  if(save){
+  pdf(file=paste("../Figures/Heatmap_", method, "_", norm, ".pdf", 
+                 sep = ""), width = 5, height = 5)
+  draw(p_combined,heatmap_legend_side = "bottom")
+  dev.off()
+}
+  if(print_p){
+    print(p_combined)
+  }
+}
+```
+
+Define a violin plot function: input an OTU table, create pseudo sample, obtain beta diversity, and create a violin plot based on the distance between pseudo and others.
+
+pseudo-sample: the median of each genus across all samples
+
+```{r beta diversity violin plot function}
+beta_violin <- function(data_WTS, data_16S, norm, method, save = FALSE, print_p = FALSE){
+  otu_16S <- t(data_16S@otu_table@.Data)
+  pseudo_sample <- colMedians(otu_16S, useNames = TRUE)
+  otu_16S <- rbind(otu_16S, pseudo_sample)
+  dist_pseudo_16S <- data.frame(pseudo_dist = as.matrix(vegdist(otu_16S, method = method))["pseudo_sample", 1:(nrow(otu_16S)-1)], 
+                                Diagnosis = data_16S@sam_data@.Data[[5]],
+                                Type = "16S",
+                                Measure = method,
+                                Dataset = norm)
+
+  otu_WTS <- t(data_WTS@otu_table@.Data)
+  pseudo_sample <- colMedians(otu_WTS, useNames = TRUE)
+  otu_WTS <- rbind(otu_WTS, pseudo_sample)
+  dist_pseudo_WTS <- data.frame(pseudo_dist = as.matrix(vegdist(otu_WTS, method = method))["pseudo_sample",1:(nrow(otu_WTS)-1)], 
+                                Diagnosis = data_WTS@sam_data@.Data[[5]],
+                                Type = "WTS",
+                                Measure = method,
+                                Dataset = norm)
+
+  violin_df <- rbind(dist_pseudo_16S, dist_pseudo_WTS)
+  
+
+  
+  p <- ggplot(violin_df, aes(x = Type, y = pseudo_dist, fill = Diagnosis)) +
+    geom_violin() +
+    theme_bw()+
+    theme(legend.position = "bottom", legend.box = "horizontal")+
+    labs(x = "",y = "Distance with pseudo sample (median)")+
+    ylim(0, 1)
+  if(save){
+    ggsave(paste("../Figures/Violin_", method, "_", norm, ".pdf", sep = ""), p, width = 5, height = 4, units = "in")
+  }
+  if(print_p){
+    print(p)
+  }
+  return(violin_df)
+}
+```
+
+
+Generate PCoA plots / Heatmaps / Violin plots for beta diversity of raw data, matched data, filtered data, and filtered data after normalization
+
+```{r beta diversity visualization}
+norm_list <- c("Raw","Matched","Filtered","F-TSS","F-TMM","F-CSS","F-GMPR","F-DESeq_RLE","F-DESeq_VS","F-Wrench")
+list_16S <- c("Raw_M_16S", "Matched_M_16S", "Filtered_M_16S", "TSS_M_16S", "TMM_M_16S", "CSS_M_16S", "GMPR_M_16S", "DRP_M_16S", "DV_M_16S", "Wrench_M_16S")
+list_WTS <- c("Raw_M_WTS", "Matched_M_WTS", "Filtered_M_WTS", "TSS_M_WTS", "TMM_M_WTS", "CSS_M_WTS", "GMPR_M_WTS", "DRP_M_WTS","DV_M_WTS", "Wrench_M_WTS")
+method <- c("bray","jaccard")
+violin_whole <- setNames(data.frame(matrix(ncol = 5, nrow = 0)), c("pseudo_dist", "Diagnosis", "Type", "Measure", "Dataset"))
+for (m in 1:2){
+for (n in 1:10){
+  norm <- norm_list[n]
+  eval(parse(text = paste0("data_WTS=",list_WTS[n])))
+  eval(parse(text = paste0("data_16S=",list_16S[n])))
+  if(norm != "Raw"){beta_combined_PCoA(data_WTS, data_16S, norm, method = method[m], save=TRUE)}
+  beta_PCoA(data_WTS, data_16S, norm, method = method[m], save=TRUE)
+  beta_heatmap(data_WTS, data_16S, norm, method = method[m], save=TRUE)
+  violin_whole <- rbind(violin_whole, beta_violin(data_WTS, data_16S, norm, method = method[m], save=FALSE))
+  }
+}
+violin_whole$Dataset <- factor(violin_whole$Dataset, levels = norm_list)
+violin_whole$Measure <- ifelse(violin_whole$Measure == "bray", "Bray Curtis", "Jaccard")
+violin_whole$sample <- Raw_M_WTS@sam_data$Run
+violin_med <- violin_whole %>% group_by(Measure, Type, Dataset) %>% summarise(median = median(pseudo_dist),
+                                                                   sd = sd(pseudo_dist))
+
+pivot_wider(violin_med, names_from = "Type", values_from = c("median","sd"))
+
+#Perform Welch t-test
+Welch_results <- violin_whole %>%
+    group_by(Measure, Dataset) %>%
+    summarise(t_test_p_value = t.test(pseudo_dist[Type == "16S"], pseudo_dist[Type == "WTS"] , paired = TRUE)$p.value)
+
+Welch_results$signif <- cut(Welch_results$t_test_p_value, 
+                       breaks = c(-Inf, 0.001, 0.01, 0.05, Inf), 
+                       labels = c("***", "**", "*", "ns"))
+
+
+p_violin_whole <- ggplot(violin_whole, aes(x = Dataset, y = pseudo_dist)) +
+    geom_boxplot(aes(fill = Type),position = position_dodge(width = 0.8)) +
+    theme_bw()+
+    facet_wrap(vars(Measure), nrow=2, scales = "free")+
+    theme(legend.position = "bottom", legend.box = "horizontal")+
+    labs(x = "",y = "Distance with pseudo sample (median)", color = "", fill = "")+
+    geom_text(data = Welch_results, aes(x = Dataset, y = 0, label = signif), 
+            size = 5, vjust = -19.5)+
+    theme(
+    plot.caption = element_text(hjust = 0.5, size = 12)
+    )+
+  scale_fill_bmj()
+ggsave(paste("../Figures/Beta_boxlplot.pdf", sep = ""), p_violin_whole, width = 13, height = 8, units = "in")
+```
+
+
+PERMANOVA testing whether the microbial community of 16S and WTS the same or not. 
+
+```{r PERMANOVA of beta diversity}
+# Perform PERMANOVA
+PERMANOVA_results_bray <- rep("",9)
+PERMANOVA_results_jaccard <- rep("",9)
+for (n in 2:10){
+  eval(parse(text = paste0("data_WTS=",list_WTS[n])))
+  eval(parse(text = paste0("data_16S=",list_16S[n])))
+  group <- factor(c(rep(1,ncol(data_16S@otu_table)),rep(2,ncol(data_16S@otu_table))))
+  
+  dist_matrix <- as.matrix(vegdist(rbind(t(data_16S@otu_table@.Data),t(data_WTS@otu_table@.Data)),method = "bray"))
+  PERMANOVA_results_bray[n-1] <- round(adonis2(dist_matrix ~ group, permutations = 1000)$F[1])
+  
+  dist_matrix <- as.matrix(vegdist(rbind(t(data_16S@otu_table@.Data),t(data_WTS@otu_table@.Data)),method = "jaccard"))
+  PERMANOVA_results_jaccard[n-1] <- round(adonis2(dist_matrix ~ group, permutations = 1000)$F[1])
+}
+PERMANOVA_results <- data.frame(Dataset = rep(norm_list[2:10],2),
+                                Measure = c(rep("Bray Curtis",9),rep("Jaccard",9)),
+                                signif = c(PERMANOVA_results_bray,PERMANOVA_results_jaccard))
+kable(PERMANOVA_results, 
+      caption = "PERMANOVA P-values for Beta Diversity", 
+      col.names = c("Dataset", "Beta diversity", "Pseudo-F ratio"),
+      format = "markdown")
+```

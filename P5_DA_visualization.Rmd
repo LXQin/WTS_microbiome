@@ -1,0 +1,216 @@
+---
+title: "P5 Stacked CCC volcano"
+author: "Ying Xiang"
+date: "2024-02-27"
+output: html_document
+---
+
+This code is used to visualize the DA results, including the following steps:
+
+- 1. stacked bar plot 
+  * obtain significant genera of ANCOMBC2 
+  * obtain significant genera of ALDEx2
+  * Create stacked barplots based on the output, including number of unique and common significant features. 
+  
+- 2. CCC
+  * CCC of Log2FC
+  * CCC of ANCOMBC2 -log10(P-value)
+  * CCC of ALDEX2 -log10(P-value)
+  
+- 3. volcano plot
+  * Generate 2*9 volcano plots of ANCOMBC2
+  * Generate 2*9 volcano plots of ALDEx2
+  
+```{r load packages}
+library(dplyr)
+library(ggplot2)
+library(DescTools) 
+library(reshape2)
+library(ggpubr)
+library(tidyverse)
+```
+
+The parameter "contrast" determines that subsequent code will generate plots using data derived from three different contrasts.
+
+```{r define contrast}
+# contrast = "UC vs nonIBD"
+# contrast = "CD vs nonIBD"
+ contrast = "IBD vs nonIBD"
+root <- ifelse(contrast == "IBD vs nonIBD", "IBDvsNonIBD","CDUCvsNonIBD")
+label <- strsplit(contrast," vs ")[[1]][1]
+```
+
+
+```{r define DA visualization function}
+DA_vis <- function(DA_method, alpha){
+  
+  label <- strsplit(contrast," vs ")[[1]][1]
+  
+  stack <- data.frame(Datasets = c("Matched", "Filtered", "TSS", "TMM", "CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                      unique_16S = NA, unique_WTS = NA, common = NA)
+  ccc <- data.frame(Datasets = c("Matched", "Filtered", "TSS", "TMM", "CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                    ccc_pval = NA, ccc_lfc = NA)
+  volcano <- setNames(data.frame(matrix(ncol = 5, nrow = 0)), c("taxon",  "log2FC", "pval", "Platform", "Dataset"))
+
+  for(i_data in 1:nrow(stack)){
+    dataset <- stack$Datasets[i_data]
+    DA_16S <- read.csv(paste0("DAResults/", root, "/", DA_method, "_", dataset, "_M_16S.csv"))
+    DA_WTS <- read.csv(paste0("DAResults/", root, "/", DA_method, "_",  dataset, "_M_WTS.csv"))
+    rownames(DA_16S) <- DA_16S$taxon  
+    rownames(DA_WTS) <- DA_WTS$taxon 
+    
+    if(DA_method == "ANCOMBC"){
+      
+      eval(parse(text = paste0("sig_16S <- DA_16S$taxon[DA_16S$p_diagnosis",label," < alpha]")))
+      eval(parse(text = paste0("sig_WTS <- DA_WTS$taxon[DA_WTS$p_diagnosis",label," < alpha]")))
+
+      eval(parse(text = paste0("ccc[which(ccc$Datasets == dataset), 'ccc_lfc'] <- CCC(DA_16S$lfc_diagnosis",
+                               label,"[order(DA_16S$taxon)],DA_WTS$lfc_diagnosis",
+                               label,"[order(DA_WTS$taxon)], na.rm = TRUE)$rho.c[1] %>% as.numeric")))
+      eval(parse(text = paste0("ccc[which(ccc$Datasets == dataset), 'ccc_pval'] <- CCC(-log10(DA_16S$p_diagnosis",
+                               label,"[order(DA_16S$taxon)]),-log10(DA_WTS$p_diagnosis",
+                               label,"[order(DA_WTS$taxon)]), na.rm = TRUE)$rho.c[1] %>% as.numeric")))
+      
+      eval(parse(text = paste0("volcano_16S <- DA_16S[,c('taxon', 'lfc_diagnosis",label,"', 'p_diagnosis",label,"')]")))
+      colnames(volcano_16S) <- c('taxon', 'log2FC', 'pval')
+      volcano_16S$Platform <- '16S'
+      volcano_16S$Dataset <- dataset
+      eval(parse(text = paste0("volcano_WTS <- DA_WTS[,c('taxon', 'lfc_diagnosis",label,"', 'p_diagnosis",label,"')]")))
+      colnames(volcano_WTS) <- c('taxon', 'log2FC', 'pval')
+      volcano_WTS$Platform <- 'WTS'
+      volcano_WTS$Dataset <- dataset
+      volcano <- rbind(volcano, rbind(volcano_16S[order(volcano_16S$taxon),], volcano_WTS[order(volcano_WTS$taxon),]))
+      
+    }
+    if(DA_method == "ALDEx2"){
+      
+      eval(parse(text = paste0("sig_16S <- rownames(DA_16S)[DA_16S$diagnosis",label,".pval < alpha]")))
+      eval(parse(text = paste0("sig_WTS <- rownames(DA_WTS)[DA_WTS$diagnosis",label,".pval < alpha]")))
+      
+      eval(parse(text = paste0("ccc[which(ccc$Datasets == dataset), 'ccc_pval'] <- CCC(-log10(DA_16S$diagnosis",label,
+                               ".pval[order(rownames(DA_16S))]),-log10(DA_WTS$diagnosis",label,
+                               ".pval[order(rownames(DA_WTS))]),na.rm=T)$rho.c[1] %>% as.numeric")))
+
+      eval(parse(text = paste0("volcano_16S <- read.csv(paste0('DAResults/',root,'/ANCOMBC_', dataset, '_M_16S.csv'))[,c('taxon', 'lfc_diagnosis",label,"')]")))
+      eval(parse(text = paste0("volcano_16S$pval <- DA_16S[volcano_16S$taxon, 'diagnosis",label,".pval']")))
+      colnames(volcano_16S) <- c('taxon',  'log2FC','pval')
+      volcano_16S$Platform <- '16S'
+      volcano_16S$Dataset <- dataset
+      
+      eval(parse(text = paste0("volcano_WTS <- read.csv(paste0('DAResults/',root,'/ANCOMBC_', dataset, '_M_WTS.csv'))[,c('taxon', 'lfc_diagnosis",label,"')]")))
+      eval(parse(text = paste0("volcano_WTS$pval <- DA_WTS[volcano_WTS$taxon, 'diagnosis",label,".pval']")))
+      colnames(volcano_WTS) <- c("taxon",  "log2FC","pval")
+      volcano_WTS$Platform <- "WTS"
+      volcano_WTS$Dataset <- dataset
+      volcano <- rbind(volcano, rbind(volcano_16S[order(volcano_16S$taxon),], volcano_WTS[order(volcano_WTS$taxon),]))
+      
+    }
+
+    stack[i_data, c("unique_16S", "unique_WTS", "common")] <- c(length(setdiff(sig_16S, sig_WTS)),
+                                                                length(setdiff(sig_WTS, sig_16S)),
+                                                                length(intersect(sig_16S, sig_WTS)))
+  }
+  
+  ## stacked bar plot of number of significant features
+  stack <- pivot_longer(stack, 2:4, values_to = "Count", names_to = "Category")
+  stack$Datasets <- factor(stack$Datasets, levels = c("Matched", "Filtered", "TSS", "TMM","CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                           labels =  c("Matched", "Filtered", "F-TSS", "F-TMM", "F-CSS","F-GMPR",  "F-DESeq_RLE", "F-DESeq_VS", "F-Wrench"))
+  stack$Category <- factor(stack$Category, levels = c("unique_WTS", "common", "unique_16S"), labels = c("WTS only", "Shared", "16S only"))
+  
+  p_stack <- ggplot(stack, aes(x = Datasets, y = Count, fill = Category, label = ifelse(Count > 0, Count, ""))) +
+                geom_bar(stat = "identity", position = "stack") +
+                geom_text(position = position_stack(vjust = 0.5))+
+                labs(x = "", y = paste("Number of differential abundant features from", DA_method), fill = "") +
+                scale_fill_manual(values = c("#66c2a5", "#8da0cb", "#fc8d62")) +
+                theme_classic()+
+                theme(legend.position = "bottom")
+  ggsave(p_stack, filename = paste0("../Figures/", label, "_", DA_method, "_stackbar.pdf"), width = 12, height = 8, units = "in")
+  
+  
+  ## ccc between pvalues and lfc
+  ccc$Datasets <- factor(ccc$Datasets, levels = c("Matched", "Filtered", "TSS", "TMM", "CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                         labels =  c("Matched", "Filtered", "F-TSS", "F-TMM", "F-CSS", "F-GMPR",  "F-DESeq_RLE", "F-DESeq_VS", "F-Wrench"))
+  if(DA_method == "ANCOMBC"){
+    ccc_df <- pivot_longer(ccc, 2:3, values_to = "CCC", names_to = "Type")
+    ccc_df$Type <- factor(ccc_df$Type, levels = c("ccc_lfc","ccc_pval"), labels = c("log2FC", "-log10(P-value)"))
+    
+    p_ccc <- ggplot(ccc_df, aes(x= Datasets, y=CCC, width=0.6)) + 
+                geom_bar(stat="identity", show.legend = FALSE) +
+                geom_text(aes(label = round(CCC,4), vjust = ifelse(CCC >= 0, 0, 1)))+
+                facet_wrap(vars(Type), nrow = 1, scales = "free")+
+                xlab("") + 
+                ylab("CCC (between 16S and WTS from ANCOMBC)") + 
+                theme_bw()+
+                theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    ggsave(p_ccc, filename = paste0("../Figures/", label, "_",  DA_method, "_ccc.pdf"), width = 12, height = 5, units = "in")
+  }
+  if(DA_method == "ALDEx2"){
+    p_pval <- ggplot(ccc, aes(x= Datasets, y=ccc_pval, width=0.6)) + 
+                geom_bar(stat="identity", show.legend = FALSE) +
+                geom_text(aes(label = round(ccc_pval,4)), vjust = 0)+
+                xlab("") + 
+                ylab("CCC of -log10(P-value) from ALDEx2") + 
+                theme_bw()
+    ggsave(p_pval, filename = paste0("../Figures/",  label, "_",  DA_method, "_cccpval.pdf"), width = 8, height = 5 , units = "in")
+  }
+  
+  ## volcano plot
+  volcano$Dataset <- factor(volcano$Dataset, levels = c("Matched", "Filtered", "TSS", "TMM", "CSS", "DRP", "DV", "GMPR",  "Wrench"),
+                         labels =  c("Matched", "Filtered", "F-TSS", "F-TMM", "F-CSS", "F-GMPR",  "F-DESeq_RLE", "F-DESeq_VS", "F-Wrench"))
+  volcano$Expression = ifelse(volcano$pval < alpha & abs(volcano$log2FC) > 1, ifelse(volcano$log2FC > 1 , 'Up', 'Down'),
+       'Stable')
+  volcano$delabel <- NA
+  volcano$delabel <- ifelse(volcano$Expression != "Stable", volcano$taxon, volcano$delabel)
+  volcano$Significance <- "Insig"
+  for (tx in unique(volcano$taxon)) {
+    for (ds in unique(volcano$Dataset)) {
+      if(sum(volcano$taxon == tx & volcano$Dataset == ds) == 0){next}
+      else{
+        status_16S <- is.na(volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "16S", "delabel"])
+        status_WTS <- is.na(volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "WTS", "delabel"])
+        if(status_WTS & (!status_16S)){
+          volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "16S", "Significance"] <- "16S only"
+        }
+        else if(status_16S & (!status_WTS)){
+            volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "WTS", "Significance"] <- "WTS only"
+        }
+        else if((!status_16S) & (!status_WTS)){
+            volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "16S", "Significance"] <- "Shared"
+            volcano[volcano$taxon == tx & volcano$Dataset == ds & volcano$Platform == "WTS", "Significance"] <- "Shared"
+        }
+        else{next}
+      }
+    }
+  }
+  volcano$label <- volcano$delabel
+  volcano$label[volcano$Significance != "Shared"] <- NA
+  
+  #remove Aerococcus from Matched 16S because they have significantly large log2FC(larger than 10)
+  if(sum(abs(na.omit(volcano$log2FC))>10)!=0){
+    print(volcano[which(abs(volcano$log2FC)>10),])
+    volcano <- volcano[-which(abs(volcano$log2FC)>10),]
+  }
+  volcano$pval[is.na(volcano$pval)] <- 1
+  volcano$Expression[is.na(volcano$Expression)] <- "Stable"
+  p_vol <- ggplot(data = volcano, aes(x = log2FC, y = -log10(pval), colour = Significance, 
+                                      label = label, shape = Expression))+
+              geom_point(alpha = 0.8, size = ifelse(is.na(volcano$delabel), 1, 2)) +
+              ggrepel::geom_text_repel(size=2) + 
+              scale_color_manual(values = c("16S only" = "darkgreen", "Insig" = "grey", "WTS only" = "blue", "Shared"= "red"))+
+              scale_shape_manual(values = c( "Down" = "square", "Stable" = "circle", "Up" = "diamond" )) +
+              geom_vline(xintercept = c(-1, 1), lty = 4, col = "black", lwd = 0.8) +
+              geom_hline(yintercept = -log10(alpha), lty = 4, col = "black", lwd = 0.8) +
+              labs(x = "log2FC", y = "-log10 (p-value)") + 
+              theme_bw() +
+              theme( plot.title = element_text(hjust = 0.5), legend.position = "bottom") +
+              facet_grid(cols = vars(Dataset),  rows = vars(Platform), scales = "free") 
+
+ ggsave(p_vol, filename = paste0("../Figures/", label, "_",  DA_method, "_volcano.pdf"), width = 16, height = 5, units = "in")  
+}
+```
+
+```{r generate DA visualization plots}
+DA_vis("ALDEx2", 0.05)
+DA_vis("ANCOMBC", 0.05)
+```
+

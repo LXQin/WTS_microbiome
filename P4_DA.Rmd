@@ -1,0 +1,135 @@
+---
+title: "DA method"
+author: "Ying Xiang"
+date: "2024-02-27"
+output: html_document
+---
+
+This code is used to generate ALDEx2 and ANCOMBC2 result. Note that for Aldex2 which requires counts, we round the normalized data if there are decimal points.
+
+```{r load packages}
+library(ALDEx2)
+library(ANCOMBC)
+library(dplyr)
+```
+
+The parameter "contrast" determines that subsequent code will generate plots using data derived from three different contrasts.
+
+```{r load data}
+ contrast = "CDUC vs nonIBD"
+# contrast = "IBD vs nonIBD"
+
+root <- ifelse(contrast == "IBD vs nonIBD", "IBDvsNonIBD","CDUCvsNonIBD")
+
+Raw_M_16S = readRDS("Raw_M_16S.rds")
+Raw_M_WTS = readRDS("Raw_M_WTS.rds")
+
+Matched_M_16S = readRDS("Matched_M_16S.rds")
+Matched_M_WTS = readRDS("Matched_M_WTS.rds")
+
+Filtered_M_16S = readRDS("Filtered_M_16S.rds")
+Filtered_M_WTS = readRDS("Filtered_M_WTS.rds")
+
+TSS_M_16S = readRDS("TSS_M_16S.rds")
+TSS_M_WTS = readRDS("TSS_M_WTS.rds")
+
+DRP_M_16S = readRDS("DRP_M_16S.rds")
+DRP_M_WTS = readRDS("DRP_M_WTS.rds")
+
+DV_M_16S = readRDS("DV_M_16S.rds")
+DV_M_WTS = readRDS("DV_M_WTS.rds")
+
+TMM_M_16S = readRDS("TMM_M_16S.rds")
+TMM_M_WTS = readRDS("TMM_M_WTS.rds")
+
+CSS_M_16S = readRDS("CSS_M_16S.rds")
+CSS_M_WTS = readRDS("CSS_M_WTS.rds")
+
+GMPR_M_16S = readRDS("GMPR_M_16S.rds")
+GMPR_M_WTS = readRDS("GMPR_M_WTS.rds")
+
+Wrench_M_16S = readRDS("Wrench_M_16S.rds")
+Wrench_M_WTS = readRDS("Wrench_M_WTS.rds")
+
+data_list = c("Raw_M_16S","Raw_M_WTS",
+              "Matched_M_16S","Matched_M_WTS",
+              "Filtered_M_16S","Filtered_M_WTS",
+              "TSS_M_16S","TSS_M_WTS",
+              "DRP_M_16S","DRP_M_WTS",
+              "DV_M_16S","DV_M_WTS",
+              "TMM_M_16S","TMM_M_WTS",
+              "CSS_M_16S","CSS_M_WTS",
+              "GMPR_M_16S","GMPR_M_WTS",
+              "Wrench_M_16S","Wrench_M_WTS")
+
+if (contrast == "IBD vs nonIBD"){
+  for (i in data_list){
+    eval(parse(text = paste0(i,"@sam_data$diagnosis = recode(",i,"@sam_data$diagnosis, 'CD' = 'IBD', 'UC' = 'IBD')")))
+  }
+}
+```
+
+```{r define function for ALDEx2 DA}
+DA_aldex <- function(ps){
+  counts_tab <- round(ps@otu_table@.Data)
+  covariates <- data.frame(diagnosis = ps@sam_data$diagnosis, 
+                           bodysite = ps@sam_data$body_site,
+                           age = ps@sam_data$consent_age,
+                           row.names = colnames(counts_tab))
+  covariates <- covariates[!is.na(covariates$age),]
+  design <- model.matrix( ~ diagnosis + bodysite + age, covariates)
+  results <- aldex(reads = counts_tab[,rownames(covariates)], 
+                   conditions  =  design, 
+                   mc.samples  =  128, 
+                   test = "glm", 
+                   effect = TRUE,
+                   include.sample.summary  =  FALSE, 
+                   verbose = T, 
+                   denom = "all")
+  return(results)
+}
+```
+
+```{r generate Aldex2 and ANCOMBC DA result, warning=FALSE}
+set.seed(111)
+Datasets <- c("Matched","Filtered", "TSS","TMM","CSS","DRP","DV", "GMPR","Wrench")
+for (type in c("16S","WTS")){
+  for(dataset in Datasets){
+      eval(parse(text  =  paste0("ps = ", dataset, "_M_", type)))
+      #if(dataset == "Matched"){
+      #  ps@tax_table = ps@tax_table[ps@tax_table != "Proteiniclasticum"]
+      #  ps@otu_table = ps@otu_table[rownames(ps@otu_table) != "Proteiniclasticum",]
+      #}
+      aldex_res <- DA_aldex(ps)
+      if(dataset == "Matched" & type =="WTS" & !("Proteiniclasticum" %in% rownames(aldex_res))){
+        new_row <- data.frame(matrix(NA, ncol = ncol(aldex_res), nrow = 1)) 
+        rownames(new_row) <- "Proteiniclasticum" 
+        colnames(new_row) <- colnames(aldex_res)
+        aldex_res <- rbind(aldex_res, new_row)
+        aldex_res <- aldex_res[order(rownames(aldex_res)), ]
+      }
+      ancombc_res <- ancombc2(data = ps,
+                              assay_name = "otu_table",
+                              fix_formula = "body_site + diagnosis + consent_age",
+                              p_adj_method = "none",
+                              prv_cut = 0,
+                              lib_cut = 0,
+                              group = "diagnosis",
+                              struc_zero = FALSE,
+                              neg_lb = FALSE,
+                              alpha = 0.01,
+                              global = F,
+                              tax_level = "Genus")
+            
+      aldex_res <- cbind(data.frame(taxon = rownames(aldex_res)),aldex_res)
+     
+      write.table(aldex_res, paste0("DAResults/", root, "/ALDEx2_", dataset, "_M_", type,".csv"),sep =",", row.names = F, col.names = T)
+      write.table(ancombc_res$res, paste0("DAResults/", root, "/ANCOMBC_", dataset, "_M_", type,".csv"), sep =",", row.names = F, col.names = T)
+  }
+}
+```
+
+#The genus Proteiniclasticum appeared in the WTS data, but its occurrence was extremely low, appearing only once in a single sample with a read count of 2. As a result, aldex2 automatically removed this genus from the analysis, leading to a mismatch in the number of genera between the WTS results and the 16S results in the aldex2 matched data.
+#The genus Proteiniclasticum also appeared in the 16S data, but its occurrence was similarly very low, appearing only once in 2 samples, with a read count of 3 in each.
+
+For now, I am manually adding Proteiniclasticum to result of matched data-aldex2. 

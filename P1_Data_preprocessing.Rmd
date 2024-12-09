@@ -1,0 +1,573 @@
+---
+title: "Data pre-processing"
+author: "Ying Xiang"
+date: "2024-02-07"
+output: html_document
+---
+This file is used to pre-process the 16S and WTS data, including the following steps:
+
+- 1. Load the 16S and WTS data:
+  * the original WTS data includes 1663 features and 106 samples.
+  * the original 16S data includes 982 features and 178 samples.
+
+- 2. Construct WTS data and its metadata with 102 samples (unique in combination of submitted_subject_id and body_site) and 1663 features.
+  * remove samples whose body site is not Ileum or Rectum
+  * average the samples with the same body site and subject id but different sample id, we average these samples and use the smallest sample id as the new id for this average.
+  
+- 3. Construct 16S data and its metadata with 155 samples (unique in combination of subject_id and biopsy_location) and 982 features.
+  * remove samples whose body site is not Ileum or Rectum.
+  * average the samples with the same body site and subject id but different sample id, we average these samples and use the smallest sample id as the new id for this average.
+  
+- 4. Find the common samples of 16S and WTS data by matching their subject id and body site, and get 102 samples.
+
+- 5. Dealing with genus for each set of common samples
+  * remove genus whose name is not biologically defined. This result in 770 known genus in 16S.
+  * remove digits from the genus names since they are subgroups of the same genus.
+  * sum the counts of species from the same genus as one count at the genus level. This result in 357 genus in 16S.
+  * remove genera with a sum of counts equal to 0 across the common samples. This result in 310 genus in 16S and 1594 genus in WTS.
+  
+- 6. Obtain three sets of data: raw data, matched data, and filtered data:
+  * the raw data has the common samples (102) but different genus (310 and 1594)
+  * the matched data has the common samples (102) and the common genus (202)
+  * the filtered data has the common samples and the common genus after filtering out genus with prevalence smaller than 10% from the raw data. This results in 64 genus for 102 samples.
+
+- 7. Build phyloseq object based on OTU table and metadata 
+  * create a function to construct phyloseq objects
+  * create three phyloseq objects with simplified diagnosis. (based on raw data, matched data, and filtered data respectively)
+ 
+- 8. Define normalization functions (TSS / DESeq_RLE_poscounts / DESeq_vs / TMM / CSS / GMPR / Wrench)
+
+- 9. Generate normalized data on the filtered data
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r import libraries, message=FALSE}
+library(tidyverse)
+library(ALDEx2)
+library(HMP2Data)
+library(tidyverse)
+library(picante)
+library(remotes)
+library(yatah)
+library(ANCOMBC)
+library(ggpubr) 
+library(umap) 
+library(mvabund) 
+library(DescTools) 
+library(hrbrthemes) 
+library(phyloseq)
+library(ggplot2)
+library(gridExtra)
+library(AMR) 
+library(htmlTable) 
+library(tableone) 
+library(arsenal)
+library(ggrepel) 
+library(dplyr)
+library(VennDiagram)
+library(RColorBrewer) 
+library(cowplot)
+library(patchwork)
+library(reshape2)
+library(phyloseq)
+library(GUniFrac)
+library(vegan)
+library(ComplexHeatmap)
+library(circlize)
+library(ggpubr)
+```
+
+## 1. Load data
+
+The 16S rRNA sequencing data and metadata for the Human Microbiome Project 2 are loaded from the package HMP2Data. The WTS data is from the 16G or 8G kraken conversion after the bioinformatics pipeline.
+
+```{r load data}
+# IBD16S_mtx is the matrix of OTU values for 16S rRNA data for IBD, which includes 982 features and 178 samples
+data("IBD16S_mtx")
+
+# IBD16S_tax is the taxonomy data for IBD 16S data, indicating the biological taxonomy information corresponding to each feature in IBD16S_mtx
+data("IBD16S_tax")
+
+# metadata for IBD16S data
+data("IBD16S_samp") 
+
+# loading the TSV file generated after processing with Kraken 2 to obtain the OTU table for Whole Transcriptome Sequencing (WTS). Data_kraken include 1663 features and 106 samples
+data_kraken = read.csv("raw data/otu_table_G.csv",row.names = "otu")
+
+# we focus on data from 16g Kraken
+data_kraken <- data_kraken[, grepl("16$", colnames(data_kraken))]
+
+
+# loading the metadata for WTS
+ID4 = read.csv("raw data/SraRunTable (4).txt")
+ID5 = read.csv("raw data/SraRunTable (5).txt")
+ID6 = read.csv("raw data/SraRunTable (6).txt")
+ID = rbind(ID4, ID5, ID6)
+```
+
+## 2. Construct WTS data and its metadata
+
+```{r WTS step 2 to get 102 samples and 1663 features}
+data_WTS = data_kraken
+colnames(data_WTS) = substr(colnames(data_WTS),1,10)
+
+# create metadata of WTS, and keep samples of metadata which appears in WTS count table
+metadata_WTS = subset(ID, Run %in% colnames(data_WTS))
+metadata_WTS = metadata_WTS[order(metadata_WTS$Run), ]
+
+
+# merge metadata of WTS and data_WTS to average the samples with the same body_site and subject_id
+merge_WTS = cbind(t(data_WTS),metadata_WTS[,c("body_site","submitted_subject_id")])
+merge_WTS = merge_WTS %>%
+  group_by(body_site, submitted_subject_id) %>%
+  summarize_all(mean) %>%
+  ungroup()
+
+# remove metadata_WTS whose body_site are not "Ileum" or "Rectum" (WTS)
+metadata_WTS = subset(metadata_WTS, body_site %in% c("Ileum","Rectum"))
+merge_WTS = subset(merge_WTS, body_site %in% c("Ileum","Rectum"))
+
+# print dimension
+print(paste("Unique number of features:", dim(merge_WTS)[2] - 2))
+print(paste("Unique number of samples:",length(unique(paste(metadata_WTS$submitted_subject_id, metadata_WTS$body_site)))))
+```
+
+## 3. Construct 16S data and its metadata
+
+```{r 16S step2 to get 155 samples and 982 features}
+# create metadata of 16S
+metadata_16S = IBD16S_samp[,c("sample_id","subject_id","biopsy_location","consent_age","diagnosis")]
+
+mean(rownames(metadata_16S) == colnames(IBD16S_mtx))
+# merge metadata of 16S and data_16S to average the samples with the same body_site and subject_id
+merge_16S = cbind(t(IBD16S_mtx),metadata_16S[,c("biopsy_location","subject_id")])
+merge_16S = merge_16S %>%
+  group_by(biopsy_location, subject_id) %>%
+  summarize_all(mean) %>%
+  ungroup()
+
+# remove metadata_16S whose body_site are not "Ileum" or "Rectum" (16S)
+metadata_16S = subset(metadata_16S, biopsy_location %in% c("Ileum","Rectum"))
+merge_16S = subset(merge_16S, biopsy_location %in% c("Ileum","Rectum"))
+
+# print dimension
+print(paste("Unique number of features:", dim(merge_16S)[2] - 2))
+print(paste("Unique number of samples:", length(unique(paste(metadata_16S$subject_id, metadata_16S$biopsy_location)))))
+```
+
+## 4. Find the common samples of 16S and WTS data by matching their subject id and body site.
+
+```{r find common samples}
+merge_WTS$bodysite_subject = paste(merge_WTS$body_site, merge_WTS$submitted_subject_id, sep = "")
+merge_16S$bodysite_subject = paste(merge_16S$biopsy_location, merge_16S$subject_id, sep = "")
+
+metadata_WTS$bodysite_subject = paste(metadata_WTS$body_site, metadata_WTS$submitted_subject_id, sep = "")
+metadata_16S$bodysite_subject = paste(metadata_16S$bio, metadata_16S$subject_id, sep = "")
+
+common_sample = intersect(merge_16S$bodysite_subject, merge_WTS$bodysite_subject)
+print(paste("Number of common samples:", length(common_sample)))
+```
+
+
+```{r get common samples 16S and WTS table}
+# merge metadata of 16S and WTS
+metadata = metadata_WTS[match(common_sample, metadata_WTS$bodysite_subject),c("Run","bodysite_subject","body_site")]
+
+metadata = cbind(metadata, metadata_16S[match(common_sample,metadata_16S$bodysite_subject), c("consent_age","diagnosis","sample_id")])
+
+merge_16S = merge_16S[merge_16S$bodysite_subject %in% metadata$bodysite_subject,]
+merge_WTS = merge_WTS[merge_WTS$bodysite_subject %in% metadata$bodysite_subject,]
+
+#column 1/2/985 or 1/2/1666 are the bodysite, subject id, and the combination of them.
+M_16S = data.frame(t(merge_16S[,-c(1,2,985)]))
+M_WTS = data.frame(t(merge_WTS[,-c(1,2,1666)]))
+
+colnames(M_16S) = metadata$Run
+colnames(M_WTS) = metadata$Run
+
+dim(metadata)
+```
+
+## 5. Dealing with genus for each set of common samples
+
+Sample-level processing has been completed. Next, we will proceed with genus-level processing.
+
+Firstly, we remove genera that do not have a clearly defined biological definition: get rid of biologically undefined genus: H16, Z20, DS100, g, uncultured, this result in 770 known genus in 16S. There are no undefined genus in WTS.
+
+```{r genus processing by remove undefined genus}
+# get rid of biologically undefined genus: H16, Z20, DS100, g, uncultured
+# H16, Z20, DS100, g, uncultured are genera in the metadata of 16S, but their corresponding biological names could not be successfully identified. Therefore, they have been removed.
+tax_16S = data.frame(IBD16S_tax)
+mean(rownames(M_16S) == rownames(tax_16S))
+M_16S = M_16S[!tax_16S$Genus %in% c("H16", "Z20", "DS100", "g","uncultured"),]
+tax_16S = tax_16S[!tax_16S$Genus %in% c("H16", "Z20", "DS100", "g","uncultured"),]
+```
+
+Secondly, we want to aggregate those belonging to the same genus but different subgenus or species. 
+
+But there are different numerical suffixes appear for the same genus. This is because in microbial taxonomy, genus names like Ruminiclostridium5 that include a number usually indicate that the genus has been further subdivided into several groups. This often happens because classification based on the 16S rRNA gene cannot always clearly resolve species or genus-level distinctions. As a result, the same genus may be split into multiple operational taxonomic units (OTUs) or clusters. The number typically represents a specific subgroup or cluster within the genus, reflecting some genetic variation, but still sharing the same higher-level classification (e.g., genus level). Relevant microbiological studies or databases, such as SILVA or Greengenes, often use this numbering method in 16S rRNA gene-based classification. 
+
+So we remove the digits and treat them as same genus.
+
+This result in 357 genus in 16S. There are no repeated genus in WTS.
+
+```{r genus processing by species of the same genus}
+# get rid of subgroups of same genus (combine entries of the same genus but different species)
+M_16S$genus = tax_16S$Genus
+M_16S = M_16S %>% mutate(genus = sub("\\d+$", "", genus))
+M_16S = M_16S %>%
+  group_by(genus) %>%
+  summarize(across(everything(), sum))
+M_16S = data.frame(M_16S[,-1], row.names = M_16S$genus)
+```
+
+Finally, we remove genera with a sum of readings equal to 0 due to sample-level operations. This result in 310 genus in 16S and 1594 genus in WTS.
+
+```{r genus processing by removing genus that has 0 in all of 102 smaples}
+# round the decimal points to the upper integer
+M_16S = ceiling(M_16S)
+M_WTS = ceiling(M_WTS)
+
+# remove genus with row sum of 0 due to reduced sample size
+M_16S = M_16S[rowSums(M_16S)!=0,]
+M_WTS = M_WTS[rowSums(M_WTS)!=0,]
+
+M_16S = M_16S[, order(colnames(M_16S))]
+M_WTS = M_WTS[, order(colnames(M_WTS))]
+
+
+# M_16S consists of 310 genera and 102 samples
+# M_WTS consists of 1594 genera and 102 samples
+print(paste("The dimension for 16S is", dim(M_16S)[1], dim(M_16S)[2], sep=" "))
+print(paste("The dimension for WTS is", dim(M_WTS)[1], dim(M_WTS)[2], sep=" "))
+```
+
+## 6. Obtain three sets of data: raw data, matched data, and filtered data.
+
+```{r get raw data}
+M_WTS_raw <- M_WTS[order(rownames(M_WTS)), ]
+M_16S_raw = M_16S
+
+mean(colnames(M_WTS_raw) == colnames(M_16S_raw))
+
+print(paste("The dimension for raw 16S is", dim(M_16S_raw)[1], dim(M_16S_raw)[2], sep=" "))
+print(paste("The dimension for raw WTS is", dim(M_WTS_raw)[1], dim(M_WTS_raw)[2], sep=" "))
+```
+
+We extract the genera that appear in both WTS and 16S datasets to obtain the matched data
+
+```{r get matched data}
+# matched data (genus shared by WTS and 16S)
+# WTS matched data: 202 genus, 102 samples
+# 16S matched data: 202 genus, 102 samples
+
+
+M_WTS_matched = M_WTS_raw[rownames(M_WTS_raw)%in%rownames(M_16S_raw),]
+M_16S_matched = M_16S_raw[rownames(M_16S_raw)%in%rownames(M_WTS_raw),]
+
+
+mean(rownames(M_WTS_matched) == rownames(M_16S_matched))
+mean(colnames(M_WTS_matched) == colnames(M_16S_matched))
+
+print(paste("The dimension for matched 16S is", dim(M_16S_matched)[1],
+            dim(M_16S_matched)[2], sep=" "))
+print(paste("The dimension for matched WTS is", dim(M_WTS_matched)[1],
+            dim(M_WTS_matched)[2], sep=" "))
+
+```
+
+To get filtered dataset, we filter genus with prevalence of less than 10% in 16S and WTS raw data separately, and then get the common genus as the final filtered data.
+
+```{r get filtered data}
+# filtered data
+# WTS filtered data: 64 genus, 102 samples
+# 16S filtered data: 64 genus, 102 samples
+raw_common_feature = intersect(
+  rownames(M_WTS_raw)[rowSums(M_WTS_raw > 0) > dim(M_WTS_raw)[2]/10], 
+  rownames(M_16S_raw)[rowSums(M_16S_raw > 0) > dim(M_16S_raw)[2]/10])
+M_16S_filter = M_16S_raw[rownames(M_16S_raw) %in% raw_common_feature,]
+M_WTS_filter = M_WTS_raw[rownames(M_WTS_raw) %in% raw_common_feature,]
+
+mean(rownames(M_WTS_matched) == rownames(M_16S_matched))
+mean(colnames(M_WTS_matched) == colnames(M_16S_matched))
+
+print(paste("The dimension for filtered matched 16S is", dim(M_16S_filter)[1],
+            dim(M_16S_filter)[2], sep=" "))
+print(paste("The dimension for filtered matched WTS is", dim(M_WTS_filter)[1],
+            dim(M_WTS_filter)[2], sep=" "))
+```
+
+Save data
+
+```{r save data files}
+# save cleaned data
+write.csv(M_16S_raw,"M_16S_raw.csv")
+write.csv(M_WTS_raw,"M_WTS_raw.csv")
+
+write.csv(M_16S_matched,"M_16S_matched.csv")
+write.csv(M_WTS_matched,"M_WTS_matched.csv")
+
+write.csv(M_16S_filter,"M_16S_filtered.csv")
+write.csv(M_WTS_filter,"M_WTS_filtered.csv")
+
+# save metadata
+metadata$diagnosis <-  relevel(factor(metadata$diagnosis), ref = "nonIBD")
+write.csv(metadata,"metadata.csv")
+```
+
+## 7. Build phyloseq objects
+
+Create a function to construct phyloseq objects
+
+```{r function to construct phyloseq objects}
+phyloseq_build <- function(meta , otu){
+  #' @param otu, the OTU table include count number of features in both experimental and computational data
+  #' @param meta, meta data about the two samples
+  #' @return a phyloseq object for either experimental data set or computational data set
+  #create phyloseq object based on matching data
+  tax_m = as.matrix(rownames(otu))
+  row.names(tax_m) = rownames(otu)
+  colnames(tax_m) = "Genus"
+  OTU = otu_table(otu, taxa_are_rows = TRUE)
+  META = sample_data(meta) #create a sample_data_class object
+  sample_names(META) = meta$Run
+  TAX = tax_table(tax_m)
+  otu_data = phyloseq(OTU, TAX, META)
+  return(otu_data)
+}
+```
+
+Create three phyloseq objects with diagnosis. (based on raw data, matched data, and filtered data respectively)
+
+```{r build phyloseq object}
+# build phyloseq object based on OTU table and metadata
+
+# raw data
+Raw_M_16S <- phyloseq_build(metadata, M_16S_raw)
+Raw_M_WTS <- phyloseq_build(metadata, M_WTS_raw)
+
+# matched data
+Matched_M_16S <- phyloseq_build(metadata, M_16S_matched)
+Matched_M_WTS <- phyloseq_build(metadata, M_WTS_matched)
+
+# filtered data
+Filtered_M_16S <- phyloseq_build(metadata, M_16S_filter)
+Filtered_M_WTS <- phyloseq_build(metadata, M_WTS_filter)
+
+```
+
+## 8. Define normalization functions
+
+TSS / DESeq_RLE_poscounts / DESeq_vs / TMM / CSS / GMPR / Wrench
+```{r normalization functions}
+# 1 (TSS)
+norm_TSS <- function(ps, keep_prop = F) {
+  # keep as proportions or convert to counts per million?
+  scale <- ifelse(keep_prop, 1, 1e6)
+  # TSS function
+  ps_normed <-
+    phyloseq::transform_sample_counts(ps, function(x)
+      x * scale / sum(x))
+  return(ps_normed)
+}
+
+# 2 (DESeq_RLE_poscounts)
+norm_DESeq_RLE_poscounts <- function(ps, group = 1) {
+  require(DESeq2, quietly = T)
+  # keep arbitrary design for normalization
+  # Convert to DESeq object
+  ps_dds <- phyloseq_to_deseq2(ps, ~ 1)
+  # Calculate the size factors (scaling)
+  ps_dds <- estimateSizeFactors(ps_dds, type = "poscounts")
+  # Extract counts
+  counts <- DESeq2::counts(ps_dds, normalized = T)
+  # Convert back to phyloseq
+  otu <- otu_table(counts, taxa_are_rows = T)
+  sam <- access(ps, "sam_data")
+  sam$scaling_factor <- sizeFactors(ps_dds)
+  tax <- access(ps, "tax_table")
+  phy <- access(ps, "phy_tree")
+  ps_DESeq <- phyloseq(otu, sam, tax, phy)
+  return(ps_DESeq)
+}
+
+# 3 (DESeq_vs)
+norm_DESeq_vs <- function(ps, group = 1) {
+  require(DESeq2, quietly = T)
+  ps_dds <- phyloseq_to_deseq2(ps, ~ 1)
+  ps_dds <- estimateSizeFactors(ps_dds, type = "poscounts")
+  # Variance transformation
+  ps_dds <- estimateDispersions(ps_dds)
+  abund <- getVarianceStabilizedData(ps_dds)
+  # don’t allow deseq to return negative counts
+  # add the minimum count to all values
+  # another option is to replace negative counts with 0
+  abund <- abund + abs(min(abund))
+  otu <- otu_table(abund, taxa_are_rows = T)
+  sam <- access(ps, "sam_data")
+  tax <- access(ps, "tax_table")
+  phy <- access(ps, "phy_tree")
+  ps_DESeq <- phyloseq(otu, sam, tax, phy)
+  return(ps_DESeq)
+}
+
+# 4 (TMM)
+norm_TMM <- function(physeq, group = 1, method = "TMM", pseudocount = 1, ...) {
+    require("edgeR", quietly = T)
+    require("phyloseq", quietly = T)
+    # Enforce orientation.
+    if (!taxa_are_rows(physeq)) {
+      physeq <- t(physeq)
+    }
+    x = as(otu_table(physeq), "matrix")
+    # Add one to protect against overflow, log(0) issues.
+    x = x + pseudocount
+    # Check `group` argument
+    if (identical(all.equal(length(group), 1), TRUE) &
+        nsamples(physeq) > 1) {
+      # Assume that group was a sample variable name (must be categorical)
+      group = get_variable(physeq, group)
+    }
+    # Define gene annotations (`genes`) as tax_table
+    taxonomy = tax_table(physeq, errorIfNULL = FALSE)
+    if (!is.null(taxonomy)) {
+      taxonomy = data.frame(as(taxonomy, "matrix"))
+    }
+    # Now turn into a DGEList
+    y = DGEList(
+      counts = x,
+      group = group,
+      genes = taxonomy,
+      remove.zeros = TRUE
+    )
+    # Calculate the normalization factors
+    d = edgeR::calcNormFactors(y, method = method)
+    # Check for division by zero inside `calcNormFactors`
+    if (!all(is.finite(d$samples$norm.factors))) {
+      stop(
+        "Something wrong with edgeR::calcNormFactors on this data,
+non-finite $norm.factors, consider changing `method` argument"
+      )
+    }
+    scalingFactor <- d$samples$norm.factors * d$samples$lib.size / 1e6
+    dataNormalized <- t(t(otu_table(physeq)) / scalingFactor)
+    #dataNormalized <- cpm(d)
+    otu <- otu_table(dataNormalized, taxa_are_rows = T)
+    sam <- access(physeq, "sam_data")
+    sam$scaling_factor <- scalingFactor
+    tax <- access(physeq, "tax_table")
+    phy <- access(physeq, "phy_tree")
+    ps_edgeR <- phyloseq(otu, sam, tax, phy)
+    return(ps_edgeR)
+  }
+
+# 5 (CSS)
+norm_CSS <- function(ps) {
+  require(metagenomeSeq, quietly = T)
+  ps.metaG <- phyloseq_to_metagenomeSeq(ps)
+  p_stat = cumNormStatFast(ps.metaG)
+  ps.metaG = cumNorm(ps.metaG, p = p_stat)
+  ps.metaG.norm <- MRcounts(ps.metaG, norm = T)
+  otu <- otu_table(ps.metaG.norm, taxa_are_rows = T)
+  sam <- access(ps, "sam_data")
+  sam$scaling_factor <- normFactors(ps.metaG) / 1e6
+  tax <- access(ps, "tax_table")
+  phy <- access(ps, "phy_tree")
+  ps_CSS <- phyloseq(otu, sam, tax, phy)
+  return(ps_CSS)
+}
+
+# 6 (GMPR)
+norm_GMPR <- function(ps, scale = 1e6) {
+  otu <- as.matrix(otu_table(ps))
+  if (!taxa_are_rows(ps)) {
+    otu <- t(otu)
+  }
+  otu_df = as.data.frame(otu)
+  otu.tab <- matrix(otu, ncol = ncol(otu))
+  gmpr.size.factor <- GMPR(otu_df, intersect_no = 4, min_ct = 2)
+  # normalize
+  otu.tab.norm <- t((otu) / (gmpr.size.factor / scale))
+  otu.tab.norm[is.na(otu.tab.norm)] <- 0
+  # convert back to PS
+  sam <- access(ps, "sam_data")
+  sam$scaling_factor <- gmpr.size.factor
+  tax <- access(ps, "tax_table")
+  phy <- access(ps, "phy_tree")
+  ps_GMPR <- phyloseq(otu_table(t(otu.tab.norm), taxa_are_rows = T), sam, tax, phy)
+  return(ps_GMPR)
+}
+
+
+# 7 (Wrench)
+# Wrench set the group default as body_site
+norm_wrench <- function(ps, group_col) {
+  require(Wrench, quietly = T)
+  if (identical(all.equal(length(group_col), 1), TRUE) &
+      nsamples(ps) > 1) {
+    # Assume that group was a sample variable name (must be categorical)
+    group = get_variable(ps, group_col)
+  }
+  otu_tab <- otu_table(ps)
+  W <- wrench(otu_tab, group)
+  compositionalFactors <- W$ccf
+  normalizationFactors <- W$nf
+  normed_otu <- otu_tab / (normalizationFactors / 1e6)
+  otu <- otu_table(normed_otu, taxa_are_rows = T)
+  sam <- access(ps, "sam_data")
+  sam$scaling_factor <- normalizationFactors
+  tax <- access(ps, "tax_table")
+  phy <- access(ps, "phy_tree")
+  ps_wrench <- phyloseq(otu, sam, tax, phy)
+  return(ps_wrench)
+}
+```
+
+## 9. Generate normalized data and save phyloseq object
+```{r normalize data}
+TSS_M_16S <- norm_TSS(Filtered_M_16S)
+TSS_M_WTS <- norm_TSS(Filtered_M_WTS)
+saveRDS(TSS_M_16S, file = "TSS_M_16S.rds")
+saveRDS(TSS_M_WTS, file = "TSS_M_WTS.rds")
+
+DRP_M_16S <- norm_DESeq_RLE_poscounts(Filtered_M_16S)
+DRP_M_WTS <- norm_DESeq_RLE_poscounts(Filtered_M_WTS)
+saveRDS(DRP_M_16S, file = "DRP_M_16S.rds")
+saveRDS(DRP_M_WTS, file = "DRP_M_WTS.rds")
+
+DV_M_16S <- norm_DESeq_vs(Filtered_M_16S)
+DV_M_WTS <- norm_DESeq_vs(Filtered_M_WTS)
+saveRDS(DV_M_16S, file = "DV_M_16S.rds")
+saveRDS(DV_M_WTS, file = "DV_M_WTS.rds")
+
+TMM_M_16S <- norm_TMM(Filtered_M_16S)
+TMM_M_WTS <- norm_TMM(Filtered_M_WTS)
+saveRDS(TMM_M_16S, file = "TMM_M_16S.rds")
+saveRDS(TMM_M_WTS, file = "TMM_M_WTS.rds")
+
+CSS_M_16S <- norm_CSS(Filtered_M_16S)
+CSS_M_WTS <- norm_CSS(Filtered_M_WTS)
+saveRDS(CSS_M_16S, file = "CSS_M_16S.rds")
+saveRDS(CSS_M_WTS, file = "CSS_M_WTS.rds")
+
+GMPR_M_16S <- norm_GMPR(Filtered_M_16S, scale = 1)
+GMPR_M_WTS <- norm_GMPR(Filtered_M_WTS, scale = 1)
+saveRDS(GMPR_M_16S, file = "GMPR_M_16S.rds")
+saveRDS(GMPR_M_WTS, file = "GMPR_M_WTS.rds")
+
+Wrench_M_16S = norm_wrench(Filtered_M_16S, group_col = "diagnosis")
+Wrench_M_WTS = norm_wrench(Filtered_M_WTS, group_col = "diagnosis")
+saveRDS(Wrench_M_16S, file = "Wrench_M_16S.rds")
+saveRDS(Wrench_M_WTS, file = "Wrench_M_WTS.rds")
+
+saveRDS(Raw_M_16S, file = "Raw_M_16S.rds")
+saveRDS(Raw_M_WTS, file = "Raw_M_WTS.rds")
+
+saveRDS(Matched_M_16S, file = "Matched_M_16S.rds")
+saveRDS(Matched_M_WTS, file = "Matched_M_WTS.rds")
+
+saveRDS(Filtered_M_16S, file = "Filtered_M_16S.rds")
+saveRDS(Filtered_M_WTS, file = "Filtered_M_WTS.rds")
+```

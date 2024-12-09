@@ -1,0 +1,829 @@
+---
+title: "Data Structure Presentation"
+author: "Ying Xiang"
+date: "2024-02-14"
+output: html_document
+---
+
+This file is used to generate plots:
+
+- 0. log2CountHeatmap.pdf: Heatmap of matched and filtered counts on log2 scale.
+
+- 1. OTU_hist.pdf: Histograms of log2-transformed WTS and 16S read counts.
+
+- 2. median_filter.pdf, median_match.pdf: Scatter plots comparing the log2-transformed WTS and 16S read counts' mean or median for various genera in both filtered and matched data.
+
+- 3. prevalence_WTS.pdf, prevalence_16S.pdf: This showcases genera in 16S and WTS with a prevalence exceeding 10% and highlights the 65 common genera.
+
+- 4. relative_abundance_raw.pdf, relative_abundance_filter.pdf: Relative abundance of top 10 genus stacked bar plots on raw data and filtered data.
+
+- 5. rich_read_raw.pdf, rich_read_filter.pdf: scatterplot between total reads and richness on raw and filtered data.
+     rich_read_comp.pdf: scatter plot between 16S richness and WTS richness, and between 16S reads, and WTS reads for both matched and filtered data.
+
+- 6. WTS_16S_top10_venn_diagram.pdf: venn diagram of top 10 genus with the highest abundance in both 16S and WTS filter data.
+
+- 7. Concordance Correlation Coefficient (CCC) between genus-median,  CCC between sample richness, CCC between sample total reads,  number of overlapped genera in the corresponding top10 genera.
+
+
+```{r import libraries, message=FALSE}
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+library(tidyverse)
+library(microViz)
+library(patchwork)
+library(ggforce)
+library(jjb)
+library(phyloseq)
+library(VennDiagram)
+library(scales)
+library(knitr)
+library(DescTools)
+library(circlize)
+library(ComplexHeatmap)
+library(ggsci)
+```
+
+
+```{r load cleaned data}
+M_16S_raw = read.csv("M_16S_raw.csv", row.names = 1)
+M_WTS_raw = read.csv("M_WTS_raw.csv", row.names = 1)
+
+M_16S_matched = read.csv("M_16S_matched.csv", row.names = 1)
+M_WTS_matched = read.csv("M_WTS_matched.csv", row.names = 1)
+
+M_16S_filter = read.csv("M_16S_filtered.csv", row.names = 1)
+M_WTS_filter = read.csv("M_WTS_filtered.csv", row.names = 1)
+
+Raw_M_16S = readRDS("Raw_M_16S.rds")
+Raw_M_WTS = readRDS("Raw_M_WTS.rds")
+
+Matched_M_16S = readRDS("Matched_M_16S.rds")
+Matched_M_WTS = readRDS("Matched_M_WTS.rds")
+
+Filtered_M_16S = readRDS("Filtered_M_16S.rds")
+Filtered_M_WTS = readRDS("Filtered_M_WTS.rds")
+
+TSS_M_16S = readRDS("TSS_M_16S.rds")
+TSS_M_WTS = readRDS("TSS_M_WTS.rds")
+
+DRP_M_16S = readRDS("DRP_M_16S.rds")
+DRP_M_WTS = readRDS("DRP_M_WTS.rds")
+
+DV_M_16S = readRDS("DV_M_16S.rds")
+DV_M_WTS = readRDS("DV_M_WTS.rds")
+
+TMM_M_16S = readRDS("TMM_M_16S.rds")
+TMM_M_WTS = readRDS("TMM_M_WTS.rds")
+
+CSS_M_16S = readRDS("CSS_M_16S.rds")
+CSS_M_WTS = readRDS("CSS_M_WTS.rds")
+
+GMPR_M_16S = readRDS("GMPR_M_16S.rds")
+GMPR_M_WTS = readRDS("GMPR_M_WTS.rds")
+
+Wrench_M_16S = readRDS("Wrench_M_16S.rds")
+Wrench_M_WTS = readRDS("Wrench_M_WTS.rds")
+```
+
+## 0. Heatmap of matched and filtered samples
+```{r, heatmaps of log2counts}
+col_fun <- colorRamp2(c(0,14), c("turquoise", "orangered"))
+
+# Create the heatmap with row and column splits, color scale, and specified data range
+heat_matched <- Heatmap(cbind(log2(M_16S_matched+1), log2(M_WTS_matched+1)),
+        name = "log2(count+1)",
+        column_split = rep(c("16S Matched","WTS Matched"), c(ncol(M_16S_matched), ncol(M_WTS_matched))),  # Split columns
+        col = col_fun,             # Specify color scale
+        show_row_names = FALSE,     # Show row names
+        show_column_names = FALSE,   # Show column names
+        cluster_rows = FALSE,
+        cluster_columns = FALSE,
+        row_names_gp = gpar(fontsize = 3),
+        heatmap_legend_param = list(legend_direction = "horizontal")
+)
+heat_filtered <- Heatmap(cbind(log2(M_16S_filter+1), log2(M_WTS_filter+1)),
+        name = "log2(count+1)",
+        column_split = rep(c("16S Filtered","WTS Filtered"), c(ncol(M_16S_filter), ncol(M_WTS_filter))),  # Split columns
+        col = col_fun,             # Specify color scale
+        show_row_names = FALSE,     # Show row names
+        show_column_names = FALSE,   # Show column names
+        cluster_rows = FALSE,
+        cluster_columns = FALSE,
+        row_names_gp = gpar(fontsize = 3),
+        heatmap_legend_param = list(legend_direction = "horizontal")
+)
+pdf("../Figures/Heatmap_log2Count_Matched.pdf", width = 8, height = 8) 
+draw(heat_matched,  heatmap_legend_side = "bottom") 
+dev.off()
+
+pdf("../Figures/Heatmap_log2Count_Filtered.pdf", width = 8, height = 8) 
+draw(heat_filtered,  heatmap_legend_side = "bottom") 
+dev.off()
+```
+
+
+## 1. Histograms of log2-transformed WTS and 16S read counts
+
+```{r OTU_hist.pdf}
+p_wts <- ggplot(data = data.frame(WTS = log2(unlist(c(M_WTS_raw))+1)), aes(x = WTS))+
+  geom_histogram(aes(y = after_stat(count / sum(count))))+
+  labs( x = "log2(count+1)", y = "WTS Proportions") +
+  ylim(0,1)+
+  theme_classic()
+
+p_16s <- ggplot(data = data.frame(S16 = log2(unlist(c(M_16S_raw))+1)), aes(x = S16))+
+  geom_histogram(aes(y = after_stat(count / sum(count))))+
+  labs( x = "log2(count+1)", y = "16S Proportions") +
+  ylim(0,1)+
+  theme_classic()
+
+
+p_hist <- ggarrange(p_16s, p_wts, nrow=2)
+
+ks.test(log2(unlist(c(M_WTS_raw))+1), log2(unlist(c(M_16S_raw))+1))
+ks.test(log2(unlist(c(M_WTS_matched))+1), log2(unlist(c(M_16S_matched))+1))
+ks.test(log2(unlist(c(M_WTS_filter))+1), log2(unlist(c(M_16S_filter))+1))
+
+
+# save OTU_hist.pdf
+ggsave(file = "../Figures/OTU_hist.pdf", p_hist, width = 4, height=8)
+p_hist
+mean((unlist(c(M_WTS_raw))) == 0)
+mean((unlist(c(M_16S_raw))) == 0)
+summary(unlist(c(M_WTS_raw)))
+summary(unlist(c(M_16S_raw)))
+```
+
+## 2. Scatter plots comparing the log-transformed WTS and 16S read counts' mean or median for various genera in filtered data/matched data.
+
+```{r median_filter.pdf}
+# compute the mean and median of log2 read counts for each genus in both 16S and WTS data
+
+mean_16_filter <- apply(log2(M_16S_filter+1), 1, mean)
+mean_WTS_filter <- apply(log2(M_WTS_filter+1), 1, mean)
+
+median_16_filter <- apply(log2(M_16S_filter+1), 1, median)
+median_WTS_filter <- apply(log2(M_WTS_filter+1), 1, median)
+
+mean(names(mean_16_filter) == names(mean_WTS_filter))
+mean(names(median_16_filter) == names(median_WTS_filter))
+DescTools::CCC(mean_16_filter, mean_WTS_filter)$rho.c["est"]
+DescTools::CCC(median_16_filter, median_WTS_filter)$rho.c["est"]
+
+med_filter <- data.frame(M_WTS = median_WTS_filter, M_16S = median_16_filter)
+mean_filter <- data.frame(M_WTS = mean_WTS_filter, M_16S = mean_16_filter)
+
+# generate scatter plot comparing the filtered log-transformed WTS and 16S read counts' median.
+p_filter_median <- ggplot(med_filter, aes(x = M_16S, y = M_WTS, color = "black")) + 
+  geom_point() +
+  scale_color_manual(values=c( "black")) +
+  labs(title = "", x = "16S genus median on log2 scale", y = "WTS genus median on log2 scale") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
+  theme(plot.title = element_text(hjust = 0.5),legend.position = "none")+
+  theme_classic()+
+  theme(legend.position = "none")
+
+# generate scatter plot comparing the filtered log2-transformed WTS and 16S read counts' mean.
+p_filter_mean <- ggplot(mean_filter, aes(x = M_16S, y = M_WTS, color = "black")) + 
+  geom_point() +
+  scale_color_manual(values=c( "black")) +
+  labs(title = "", x = "16S genus mean on log2 scale", y = "WTS genus mean on log2 scale") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
+  theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+  theme_classic()+
+  theme(legend.position = "none")
+
+# Save median_filter.pdf
+ggsave(p_filter_median, 
+       filename="../Figures/median_filter.pdf",
+       height=4, width=4)
+ggsave(p_filter_mean, 
+       filename="../Figures/mean_filter.pdf",
+       height=4, width=4)
+p_filter_median
+p_filter_mean
+sum(med_filter$M_16S == 0)
+sum(med_filter$M_WTS[med_filter$M_16S == 0]!=0)
+```
+
+```{r median_match.pdf}
+# compute the mean and median of log2 read counts for each genus in both 16S and WTS data
+mean_16_match <- apply(log2(M_16S_matched+1), 1, mean)
+mean_WTS_match <- apply(log2(M_WTS_matched+1), 1, mean)
+
+median_16_match <- apply(log2(M_16S_matched+1), 1, median)
+median_WTS_match <- apply(log2(M_WTS_matched+1), 1, median)
+
+med_match <- data.frame(M_WTS = median_WTS_match, M_16S = median_16_match)
+mean_match <- data.frame(M_WTS = mean_WTS_match, M_16S = mean_16_match)
+
+mean(names(mean_16_match) == names(mean_WTS_match))
+mean(names(median_16_match) == names(median_16_match))
+DescTools::CCC(mean_16_match, mean_WTS_match)$rho.c["est"]
+DescTools::CCC(median_16_match, median_WTS_match)$rho.c["est"]
+
+
+# generate scatter plot comparing the matched log-transformed WTS and 16S read counts' median.
+p_match_median <- ggplot(med_match, aes(x = M_16S, y = M_WTS, color = "black")) + 
+  geom_point() +
+  scale_color_manual(values=c( "black")) +
+  labs(title = "", x = "16S genus median on log2 scale", y = "WTS genus median on log2 scale") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
+  theme(plot.title = element_text(hjust = 0.5),legend.position = "none")+
+  theme_classic()+
+  theme(legend.position = "none")
+
+# generate scatter plot comparing the matched log2-transformed WTS and 16S read counts' mean.
+p_match_mean <- ggplot(mean_match, aes(x = M_16S, y = M_WTS, color = "black")) + 
+  geom_point() +
+  scale_color_manual(values=c( "black")) +
+  labs(title = "", x = "16S genus mean on log2 scale", y = "WTS genus mean on log2 scale") +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
+  theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
+  theme_classic()+
+  theme(legend.position = "none")
+
+ggsave(p_match_median, 
+       filename="../Figures/median_match.pdf",
+       height=4, width=4)
+ggsave(p_match_mean, 
+       filename="../Figures/mean_match.pdf",
+       height=4, width=4)
+ggsave(ggarrange(p_match_mean, p_match_median, nrow = 1), 
+       filename="../Figures/mean_median_match.pdf",
+       height=4, width=8)
+p_match_median
+p_match_mean
+sum(med_match$M_16S == 0)
+sum(med_match$M_WTS[med_match$M_16S == 0]!=0)
+```
+
+## 3. Prevalence of 16S and WTS
+
+```{r prevalence_16S.pdf}
+# 16S
+# calculate prevalence proportion of each genus in 16S raw
+prevalence_16S <- apply(M_16S_raw > 0, 1, mean) %>% data.frame()
+colnames(prevalence_16S) <- "proportion"
+prevalence_16S <-
+  prevalence_16S %>% 
+  rownames_to_column(var = "genus") %>% 
+  arrange(desc(proportion))
+
+# annotate the genus whose prevalence_16S is smaller than 10%
+prevalence_16S$Feature <- "remained"
+prevalence_16S$Feature[!(prevalence_16S$genus %in% rownames(M_16S_filter))] <- "filtered"
+prevalence_16S$Feature <- as.factor(prevalence_16S$Feature)
+
+mean(prevalence_16S$proportion < 0.1)
+
+# after arranging 16S genus from large to small, mark the genera with prevalence higher than 10%, and draw the boundary line at 10%
+p_prevalence_16S <- prevalence_16S %>% 
+  ggplot(aes(x = reorder(genus,-proportion), y = proportion, color = Feature)) + 
+  geom_bar(stat = "identity", alpha=0.5) +
+  scale_color_manual(values=c("#999999","black")) +
+  geom_hline(yintercept = 0.1, color="red", linetype="dashed", linewidth = 0.5)+
+  annotate(geom = "text", x = 150, y = 0.1, label = "0.1",vjust = -1, color = "red", size = 4) + 
+  theme(axis.text.x = element_blank(),panel.background = element_rect(fill = "white")) +
+  labs(title = "", x = "genus of 16S", y = "prevalence of 16S genus", color = "")
+
+# save prevalence_16S.png
+ggsave(filename="../Figures/prevalence_16S.pdf",
+       plot=p_prevalence_16S,
+       height=4, width=9)
+p_prevalence_16S
+```
+
+```{r prevalence_WTS.pdf}
+# WTS
+# identify the prevalence of each genus in WTS
+prevalence_WTS <- apply(M_WTS_raw > 0, 1, mean) %>% data.frame()
+colnames(prevalence_WTS) <- "proportion"
+prevalence_WTS <- prevalence_WTS %>% filter(proportion != 0) %>% rownames_to_column(var = "feature")
+prevalence_WTS$Feature <- "filtered"
+prevalence_WTS$Feature[prevalence_WTS$feature %in% rownames(M_WTS_filter)] <- "remained"
+prevalence_WTS$Feature <- as.factor(prevalence_WTS$Feature)
+
+mean(prevalence_WTS$proportion < 0.1)
+
+# after arranging WTS genus from large to small, mark the genera with prevalence_16S higher than 10%, and draw the boundary line at 10%
+p_prevalence_WTS <- prevalence_WTS %>% 
+  ggplot(aes(x = reorder(feature,-proportion), y = proportion, color = Feature)) + 
+  geom_bar(stat = "identity", alpha=0.5) +
+  scale_color_manual(values=c(  "#999999","black")) +
+  geom_hline(yintercept = 0.1, color="red", linetype="dashed", size = 0.5)+
+  annotate(geom = "text", x = 1500, y = 0.1, label = "0.1",vjust = -1, color = "red", size = 4) + 
+  theme(legend.position = "bottom")  +
+  theme(axis.text.x = element_blank()) +
+  labs(title = "", x = "genus of WTS", y = "prevalence of WTS genus", color = "")
+# Save prevalence_WTS.png
+ggsave(filename="../Figures/prevalence_WTS.pdf",
+       plot=p_prevalence_WTS,
+       height=4, width=9)
+
+ggsave(filename = "../Figures/prevalence.pdf", ggarrange(p_prevalence_16S, p_prevalence_WTS, nrow = 1, common.legend = TRUE, legend = "top"), height = 4, width = 16)
+ggsave(filename = "../Figures/prevalence_horizontal.pdf", ggarrange(p_prevalence_16S, p_prevalence_WTS, nrow = 2, common.legend = TRUE, legend = "bottom"), height = 8, width = 8)
+```
+
+
+## 4. Genus relative abundance top 10
+
+```{r relative_abundance_raw.pdf}
+# 1. identify the top 10 genus with the highest abundance in both 16S and WTS raw data.
+toptax_16S <- tax_top(Raw_M_16S, n=10, by=sum)
+toptax_WTS <- tax_top(Raw_M_WTS, n=10, by=sum)
+tax_com <- toptax_WTS[toptax_WTS %in% toptax_16S] 
+
+# assign unique color codes for each genus and take 16S's colours as standard, coloring shared genus with it.
+col_16S <- distinct_palette(n=10, add="grey90")
+col_WTS <- distinct_palette(n=20, add="grey90")[11:21]
+
+for (ft in tax_com){
+  col_WTS[1:10][toptax_WTS==ft] <-  col_16S[1:10][toptax_16S==ft]
+}
+names(col_16S) <- c(toptax_16S,"others")
+names(col_WTS) <- c(toptax_WTS,"others")
+# 2. generate barplots showing the top 10 genera of WTS and 16S raw data
+rel_16S <-
+  Raw_M_16S %>% comp_barplot(
+    tax_level = "Genus",
+    n_taxa = 10,
+    other_name = "other",
+    palette = col_16S,
+    merge_other = FALSE
+  ) + 
+  facet_grid(
+    cols = vars (diagnosis),
+    scales = "free", space = "free") + 
+  #coord_flip() +
+  labs(x = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=10),
+        legend.key.size = unit(0.2, 'cm'),
+        legend.title = element_text(size=10))+
+  ggtitle('16S') + 
+  theme(plot.title=element_text(size=12, hjust=0.5))+
+  labs(y="Relative abundance")
+
+rel_WTS <-
+  Raw_M_WTS %>% comp_barplot(
+    tax_level = "Genus",
+    n_taxa = 10,
+    other_name = "other",
+    palette = col_WTS,
+    merge_other = FALSE
+  ) + 
+  facet_grid(
+    cols = vars (diagnosis),
+    scales = "free", space = "free") + 
+  #coord_flip() +
+  labs(x = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=10),
+        legend.key.size = unit(0.2, 'cm'),
+        legend.title = element_text(size=10)) +
+  ggtitle('WTS') +
+  theme(plot.title=element_text(size=12, hjust=0.5))+
+  labs(y="Relative abundance")
+
+ggsave(filename="../Figures/relative_abundance_raw_horizontal.pdf", rel_16S + rel_WTS + plot_layout(ncol = 2),
+       height=8, width=18)
+rel_16S + rel_WTS
+```
+
+
+```{r relative_abundance_filter.pdf}
+# 1. identify the top 10 genus with the highest expression in both 16S and WTS filter data.
+toptax_16S_filter <- tax_top(Filtered_M_16S, n=10, by=sum)
+toptax_WTS_filter <- tax_top(Filtered_M_WTS, n=10, by=sum)
+tax_com_filter <- intersect(toptax_16S_filter, toptax_WTS_filter)
+
+# assign unique color codes for each genus and take 16S's colours as standard, coloring shared genus with it.
+col_16S_filter <- distinct_palette(n=10, add="grey90", pal='kelly')
+col_WTS_filter <- distinct_palette(n=20, add="grey90", pal='kelly')[11:21]
+for (ft in tax_com_filter){
+  col_WTS_filter[1:10][toptax_WTS_filter==ft] <-  col_16S_filter[1:10][toptax_16S_filter==ft]
+}
+
+names(col_16S_filter) <- c(toptax_16S_filter,"others")
+names(col_WTS_filter) <- c(toptax_WTS_filter,"others")
+
+for (ft in  unique(c(toptax_16S, toptax_WTS))){
+  if(ft %in% toptax_WTS_filter){
+     col_WTS_filter[1:10][toptax_WTS_filter==ft] <-   ifelse(ft %in% toptax_16S, col_16S[1:10][toptax_16S==ft], col_WTS[1:10][toptax_WTS==ft])
+  }
+  if(ft %in% toptax_16S_filter){
+     col_16S_filter[1:10][toptax_16S_filter==ft]  <-   ifelse(ft %in% toptax_16S, col_16S[1:10][toptax_16S==ft], col_WTS[1:10][toptax_WTS==ft])
+  }
+}
+
+
+# 2. generate barplots showing the top 10 genera of WTS and 16S filter data
+rel_16S_filter <-
+  Filtered_M_16S %>% comp_barplot(
+    tax_level = "Genus",
+    n_taxa = 10,
+    other_name = "other",
+    palette = col_16S_filter,
+    merge_other = FALSE
+  ) + 
+  facet_grid(
+    cols = vars (diagnosis),
+    scales = "free", space = "free") + 
+  #coord_flip() +
+  labs(x = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=10),
+        legend.key.size = unit(0.2, 'cm'),
+        legend.title = element_text(size=10))+
+  ggtitle('16S') +
+  theme(plot.title=element_text(size=12, hjust=0.5))+
+  labs(y="Relative abundance")
+
+rel_WTS_filter <-
+  Filtered_M_WTS %>% comp_barplot(
+    tax_level = "Genus",
+    n_taxa = 10,
+    other_name = "other",
+    palette = col_WTS_filter,
+    merge_other = FALSE
+  ) + 
+  facet_grid(
+    cols = vars (diagnosis),
+    scales = "free", space = "free") + 
+  #coord_flip() +
+  labs(x = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(legend.position = "bottom", 
+        legend.text = element_text(size=10),
+        legend.key.size = unit(0.2, 'cm'),
+        legend.title = element_text(size=10)) +
+  ggtitle('WTS') +
+  theme(plot.title=element_text(size=12, hjust=0.5))+
+  labs(y="Relative abundance")
+
+ggsave(filename="../Figures/relative_abundance_filter_horizontal.pdf", 
+       rel_16S_filter + rel_WTS_filter + plot_layout(ncol = 2),
+       height=8, width=18)
+```
+
+
+## 5. Observed richness and total reads
+
+```{r rich_read_raw.pdf}
+richness_16S_raw <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Raw_M_16S),
+                         "observed" = phyloseq::estimate_richness(Raw_M_16S, measures = "Observed")[, 1]),
+       aes(x = (total_reads), y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE, span = 0.5) +
+  labs(x = "16S total reads", y = "16S observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+
+richness_WTS_raw <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Raw_M_WTS),
+                         "observed" = phyloseq::estimate_richness(Raw_M_WTS, measures = "Observed")[, 1]),
+       aes(x = total_reads, y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE, span = 0.5) +
+  labs(x = "WTS total reads", y = "WTS observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+ggsave(filename="../Figures/rich_read_raw.pdf",ggarrange(richness_16S_raw, richness_WTS_raw, nrow=2),
+       height=8, width=4)
+
+
+M16S_totalreads <- data.frame("total_reads" =  phyloseq::sample_sums(Raw_M_16S),
+                         "observed" = phyloseq::estimate_richness(Raw_M_16S, measures = "Observed")[, 1])
+MWTS_totalreads <-  data.frame("total_reads" =  phyloseq::sample_sums(Raw_M_WTS),
+                         "observed" = phyloseq::estimate_richness(Raw_M_WTS, measures = "Observed")[, 1])
+mean(rownames(M16S_totalreads)==rownames(MWTS_totalreads))
+
+plot(M16S_totalreads$total_reads, MWTS_totalreads$total_reads)
+abline(a=0,b=1)
+
+plot(M16S_totalreads$observed, MWTS_totalreads$observed)
+abline(a=0,b=1)
+```
+
+```{r rich_read_match.pdf}
+richness_16S_match <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Matched_M_16S),
+                         "observed" = phyloseq::estimate_richness(Matched_M_16S, measures = "Observed")[, 1]),
+       aes(x = (total_reads), y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE, span = 0.5) +
+  labs(x = "16S total reads", y = "16S observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+
+richness_WTS_match <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Matched_M_WTS),
+                         "observed" = phyloseq::estimate_richness(Matched_M_WTS, measures = "Observed")[, 1]),
+       aes(x = total_reads, y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE, span = 0.5) +
+  labs(x = "WTS total reads", y = "WTS observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+ggsave(filename="../Figures/rich_read_match.pdf",ggarrange(richness_16S_match, richness_WTS_match, nrow=2),
+       height=8, width=4)
+```
+
+
+
+```{r rich_read_filter.pdf}
+
+richness_16S_filter <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_16S),
+                         "observed" = phyloseq::estimate_richness(Filtered_M_16S, measures = "Observed")[, 1]),
+       aes(x = total_reads, y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE, span=0.5) +
+  labs(x = "16S total reads", y = "16S observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+
+richness_WTS_filter <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_WTS),
+                         "observed" = phyloseq::estimate_richness(Filtered_M_WTS, measures = "Observed")[, 1]),
+       aes(x = total_reads, y = (observed))) +
+  geom_point() +
+  geom_smooth(method="loess", se = FALSE) +
+  labs(x = "WTS total reads", y = "WTS observed richness") +
+  theme(plot.title=element_text(size=9, hjust=0.5)) +
+  theme_bw()+
+  scale_x_continuous(labels = scales::scientific_format())
+
+ggsave(filename="../Figures/rich_read_filter.pdf",
+       ggarrange(richness_16S_filter,richness_WTS_filter, nrow=2),
+       height=8, width=4)
+
+
+
+M16SFilter_totalreads <- data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_16S),
+                         "observed" = phyloseq::estimate_richness(Filtered_M_16S, measures = "Observed")[, 1])
+MWTSFilter_totalreads <-  data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_WTS),
+                         "observed" = phyloseq::estimate_richness(Filtered_M_WTS, measures = "Observed")[, 1])
+mean(rownames(M16S_totalreads)==rownames(MWTS_totalreads))
+
+
+plot(M16SFilter_totalreads$total_reads, MWTSFilter_totalreads$total_reads)
+abline(a=0,b=1)
+
+plot(M16SFilter_totalreads$observed, MWTSFilter_totalreads$observed)
+abline(a=0,b=1)
+```
+
+```{r rich_match_filter_comp.pdf}
+rich_match <- data.frame("M16S" = phyloseq::estimate_richness(Matched_M_16S, measures = "Observed")[, 1],
+                         "MWTS" = phyloseq::estimate_richness(Raw_M_WTS, measures = "Observed")[, 1],
+                         type = "Matched")
+rich_filter <- data.frame("M16S" = phyloseq::estimate_richness(Filtered_M_16S, measures = "Observed")[, 1],
+                         "MWTS" = phyloseq::estimate_richness(Filtered_M_WTS, measures = "Observed")[, 1],
+                         type = "Filtered")
+rich_comp <- ggplot(rbind(rich_match, rich_filter))+
+  geom_point(aes(x = M16S, y = MWTS, color = type))+
+  geom_abline(intercept = 0, slope = 1)+
+  scale_color_bmj()+
+  labs(x = "16S observed richness", y = "WTS observed richness", color = "") +
+  theme_bw()+
+  theme(legend.position = "bottom")
+
+
+total_match <- data.frame("M16S" = phyloseq::sample_sums(Matched_M_16S),
+                         "MWTS" = phyloseq::sample_sums(Matched_M_WTS),
+                         type = "Matched")
+total_filter <- data.frame("M16S" = phyloseq::sample_sums(Filtered_M_16S),
+                         "MWTS" = phyloseq::sample_sums(Filtered_M_WTS),
+                         type = "Filtered")
+total_comp <- ggplot(rbind(total_match, total_filter))+
+  geom_point(aes(x = M16S, y = MWTS, color = type))+
+  geom_abline(intercept = 0, slope = 1)+
+  scale_color_bmj()+
+  labs(x = "16S total reads", y = "WTS total reads", color = "") +
+  theme_bw()+
+  theme(legend.position = "bottom")
+
+ggsave(filename="../Figures/rich_read_comp.pdf",
+       ggarrange(rich_comp, total_comp, nrow=2, common.legend = TRUE, legend = "bottom"),
+       height=8, width=4)
+
+```
+
+
+
+## 6. venn diagram of top 10 genus with the highest abundance in both 16S and WTS raw and filtered data.
+
+```{r venn_raw.pdf}
+top_10_data_16S <- Raw_M_16S@otu_table[rownames(Raw_M_16S@otu_table) %in% toptax_16S, ]
+genus_mean_proportions_16S <- rowSums(top_10_data_16S)[toptax_16S]
+
+top_10_data_WTS <- Raw_M_WTS@otu_table[rownames(Raw_M_WTS@otu_table) %in% toptax_WTS, ]
+genus_mean_proportions_WTS <- rowSums(top_10_data_WTS)[toptax_WTS]
+
+intersection <- intersect(names(genus_mean_proportions_16S), names(genus_mean_proportions_WTS))
+set_16S_only <- setdiff(names(genus_mean_proportions_16S), names(genus_mean_proportions_WTS))  
+set_WTS_only <- setdiff(names(genus_mean_proportions_WTS), names(genus_mean_proportions_16S))  
+
+print(paste("Shared genus:", paste(intersection, collapse = ", ")))
+print(paste("16S only:", paste(set_16S_only, collapse = ", ")))
+print(paste("WTS only:", paste(set_WTS_only, collapse = ", ")))
+
+set_16S <- names(genus_mean_proportions_16S)
+set_WTS <- names(genus_mean_proportions_WTS)
+
+venn_data <- list(
+  Set1 = set_16S,
+  Set2 = set_WTS
+)
+
+venn.plot <- venn.diagram(
+  x = venn_data,
+  category.names = c("16S", "WTS"),   
+  filename = NULL,                     
+  output = TRUE,                      
+  fill = c("skyblue", "pink"),        
+  alpha = 0.5,                        
+  cex = 1.5,                           
+  cat.cex = 1.5,                        
+  cat.pos = c(-10, 10),                 
+  cat.dist = c(0.05, 0.05),             
+  lwd = 2,                             
+  fontfamily = "sans",                 
+  label.col = "transparent",           
+  cat.col = c("blue", "red"),
+  scaled = FALSE            
+)
+
+values <- genus_mean_proportions_WTS[set_WTS_only]
+sorted_set_WTS_only <- set_WTS_only[order(values, decreasing = TRUE)]
+rankings <- rank(-genus_mean_proportions_WTS)
+sorted_set_WTS_only <- sapply(sorted_set_WTS_only, function(genus) {
+  paste(genus, " (", rankings[genus],")",sep="")
+})
+
+values <- genus_mean_proportions_16S[set_16S_only]
+sorted_set_16S_only <- set_16S_only[order(values, decreasing = TRUE)]
+rankings <- rank(-genus_mean_proportions_16S)
+sorted_set_16S_only <- sapply(sorted_set_16S_only, function(genus) {
+  paste("(", rankings[genus],") ",genus,sep="")
+})
+
+values <- genus_mean_proportions_16S[setdiff(names(genus_mean_proportions_16S), set_16S_only)]
+intersection_with_values <- intersection[order(values, decreasing = TRUE)]
+rankings_16S <- rank(-genus_mean_proportions_16S)
+rankings_WTS <- rank(-genus_mean_proportions_WTS)
+intersection_with_values <- sapply(intersection_with_values, function(genus) {
+  paste("(", rankings_16S[genus],") ", genus, " (", rankings_WTS[genus],")",sep="")
+})
+
+pdf("../Figures/WTS_16S_top10_venn_diagram_raw.pdf", width = 9, height = 6)
+grid.newpage()
+grid.draw(venn.plot)
+
+grid.text(paste(paste(intersection_with_values, collapse = "\n"), collapse = ", "), x = 0.5, y = 0.475, gp = gpar(fontsize = 12.5))
+grid.text(paste(paste(sorted_set_16S_only, collapse = "\n"), collapse = ", "), x = 0.325, y = 0.475, gp = gpar(fontsize = 12.5), just = "right") 
+grid.text(paste(paste(sorted_set_WTS_only, collapse = "\n"), collapse = ", "), x = 0.675, y = 0.475, gp = gpar(fontsize = 12.5), just = "left")
+dev.off()
+```
+
+```{r venn_filtered.pdf}
+top_10_data_16S <- Filtered_M_16S@otu_table[rownames(Filtered_M_16S@otu_table) %in% toptax_16S_filter, ]
+genus_mean_proportions_16S <- rowSums(top_10_data_16S)[toptax_16S_filter]
+
+
+top_10_data_WTS <- Filtered_M_WTS@otu_table[rownames(Filtered_M_WTS@otu_table) %in% toptax_WTS_filter, ]
+genus_mean_proportions_WTS <- rowSums(top_10_data_WTS)[toptax_WTS_filter]
+
+intersection <- intersect(names(genus_mean_proportions_16S), names(genus_mean_proportions_WTS))
+set_16S_only <- setdiff(names(genus_mean_proportions_16S), names(genus_mean_proportions_WTS))  
+set_WTS_only <- setdiff(names(genus_mean_proportions_WTS), names(genus_mean_proportions_16S))  
+
+print(paste("Shared genus:", paste(intersection, collapse = ", ")))
+print(paste("16S only:", paste(set_16S_only, collapse = ", ")))
+print(paste("WTS only:", paste(set_WTS_only, collapse = ", ")))
+
+set_16S <- names(genus_mean_proportions_16S)
+set_WTS <- names(genus_mean_proportions_WTS)
+
+venn_data <- list(
+  Set1 = set_16S,
+  Set2 = set_WTS
+)
+
+venn.plot <- venn.diagram(
+  x = venn_data,
+  category.names = c("16S", "WTS"),   
+  filename = NULL,                     
+  output = TRUE,                      
+  fill = c("skyblue", "pink"),        
+  alpha = 0.5,                        
+  cex = 1.5,                           
+  cat.cex = 1.5,                        
+  cat.pos = c(-10, 10),                 
+  cat.dist = c(0.05, 0.05),             
+  lwd = 2,                             
+  fontfamily = "sans",                 
+  label.col = "transparent",           
+  cat.col = c("blue", "red"),
+  scaled = FALSE            
+)
+
+values <- genus_mean_proportions_WTS[set_WTS_only]
+sorted_set_WTS_only <- set_WTS_only[order(values, decreasing = TRUE)]
+rankings <- rank(-genus_mean_proportions_WTS)
+sorted_set_WTS_only <- sapply(sorted_set_WTS_only, function(genus) {
+  paste(genus, " (", rankings[genus],")",sep="")
+})
+
+values <- genus_mean_proportions_16S[set_16S_only]
+sorted_set_16S_only <- set_16S_only[order(values, decreasing = TRUE)]
+rankings <- rank(-genus_mean_proportions_16S)
+sorted_set_16S_only <- sapply(sorted_set_16S_only, function(genus) {
+  paste("(", rankings[genus],") ",genus,sep="")
+})
+
+values <- genus_mean_proportions_16S[setdiff(names(genus_mean_proportions_16S), set_16S_only)]
+intersection_with_values <- intersection[order(values, decreasing = TRUE)]
+rankings_16S <- rank(-genus_mean_proportions_16S)
+rankings_WTS <- rank(-genus_mean_proportions_WTS)
+intersection_with_values <- sapply(intersection_with_values, function(genus) {
+  paste("(", rankings_16S[genus],") ", genus, " (", rankings_WTS[genus],")",sep="")
+})
+
+pdf("../Figures/WTS_16S_top10_venn_diagram_filtered.pdf", width = 9, height = 6)
+grid.newpage()
+grid.draw(venn.plot)
+
+grid.text(paste(paste(intersection_with_values, collapse = "\n"), collapse = ", "), x = 0.5, y = 0.475, gp = gpar(fontsize = 12.5))
+grid.text(paste(paste(sorted_set_16S_only, collapse = "\n"), collapse = ", "), x = 0.325, y = 0.475, gp = gpar(fontsize = 12.5), just = "right") 
+grid.text(paste(paste(sorted_set_WTS_only, collapse = "\n"), collapse = ", "), x = 0.675, y = 0.475, gp = gpar(fontsize = 12.5), just = "left")
+dev.off()
+```
+
+
+
+```{r CCC}
+results_table <- data.frame(
+  Normalization = character(),
+  CCC_Genus_Median = numeric(),
+  CCC_Sample_Richness = numeric(),
+  CCC_Sample_Total_Reads = numeric(),
+  Overlapped_Genera = numeric(),
+  stringsAsFactors = FALSE
+)
+Norm_list <- c("Matched","Filtered","TSS","DRP","DV","TMM","CSS","GMPR","Wrench")
+
+for (i in 1:9) {
+  eval(parse(text  =  paste0("M_16S <- ",Norm_list[i],"_M_16S@otu_table")))
+  eval(parse(text  =  paste0("M_WTS <- ",Norm_list[i],"_M_WTS@otu_table")))
+
+  # CCC between genus-median
+  median_16S <- apply(M_16S, 1, median)
+  median_WTS <- apply(M_WTS, 1, median)
+  ccc_genus_median <- CCC(median_16S, median_WTS)$rho.c$est
+
+  # CCC between sample richness
+  richness_16S <- apply(M_16S, 2, function(x) sum(x > 0))
+  richness_WTS <- apply(M_WTS, 2, function(x) sum(x > 0))
+  ccc_sample_richness <- CCC(richness_16S, richness_WTS)$rho.c$est
+
+  # CCC between sample total reads
+  total_reads_16S <- colSums(M_16S)
+  total_reads_WTS <- colSums(M_WTS)
+  ccc_sample_total_reads <- CCC(total_reads_16S, total_reads_WTS)$rho.c$est
+
+  # top 10 genera overlapped #
+  total_abundance_16S <- rowSums(M_16S)
+  total_abundance_WTS <- rowSums(M_WTS)
+  top10_16S <- names(sort(total_abundance_16S, decreasing = TRUE))[1:10]
+  top10_WTS <- names(sort(total_abundance_WTS, decreasing = TRUE))[1:10]
+  overlapped_genera <- length(intersect(top10_16S, top10_WTS))
+
+  results_table <- rbind(results_table, data.frame(
+    Version = Norm_list[i],
+    CCC_Genus_Median = ccc_genus_median,
+    CCC_Sample_Richness = ccc_sample_richness,
+    CCC_Sample_Total_Reads = ccc_sample_total_reads,
+    Overlapped_Genera = overlapped_genera
+  ))
+}
+kable(results_table, 
+      caption = "Results of CCC and Overlapped Genera for Different Normalization", 
+      col.names = c("Version", "CCC Genus Median", "CCC Sample Richness", "CCC Sample Total Reads", "Overlapped Genera"),
+      format = "markdown")
+```
