@@ -1,7 +1,5 @@
 ---
 title: "Data pre-processing"
-author: "Ying Xiang"
-date: "2024-02-07"
 output: html_document
 ---
 This file is used to pre-process the 16S and WTS data, including the following steps:

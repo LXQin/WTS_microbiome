@@ -1,7 +1,5 @@
 ---
 title: "Data Structure Presentation"
-author: "Ying Xiang"
-date: "2024-02-14"
 output: html_document
 ---
 

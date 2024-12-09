@@ -1,7 +1,5 @@
 ---
 title: "Alpha/Beta Diversity"
-author: "Ying Xiang"
-date: "2024-02-14"
 output: html_document
 ---
 
