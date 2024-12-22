@@ -2,9 +2,13 @@
 
 This repository contains the data and scripts (.sh, .rmd) to reproduce the analysis in the original paper. To reproduce the analysis, following the steps below.
 
+## Data access
+
+The 16S rRNA sequencing dataset is publicly available and can be accessed through R package HMP2Data. The Whole transcriptomics data can be  downloaded as controlled-access sequences from the Genotypes and Phenotypes database (accession number: phs001626). 
+
 ## Data preparation
 
-The 16S rRNA-seq data should be obtained as a taxonomy table using the HMP2Data package. The whole transcriptome sequencing (WTS) derived abundance table and the corresponding meta data are in /raw data/. The script to get WTS-derived abundance table and the corresponding summary statistics are in /FASTQ_Processing/.
+The script to get whole transcriptome sequencing (WTS) derived abundance table and the corresponding summary statistics are in /FASTQ_Processing/. The WTS-derived abundance table and the corresponding meta data should be in /raw data/ for later processing. The WTS-derived abundance table used in the manuscript is available upon request. 
 
 ## Run Rmarkdown code
 
