@@ -1,5 +1,5 @@
 ---
-title: "P5 Stacked CCC volcano"
+title: "P5 DA Results Visualization"
 output: html_document
 ---
 
@@ -31,8 +31,8 @@ library(tidyverse)
 The parameter "contrast" determines that subsequent code will generate plots using data derived from three different contrasts.
 
 ```{r define contrast}
-# contrast = "UC vs nonIBD"
-# contrast = "CD vs nonIBD"
+contrast = "UC vs nonIBD"
+contrast = "CD vs nonIBD"
  contrast = "IBD vs nonIBD"
 root <- ifelse(contrast == "IBD vs nonIBD", "IBDvsNonIBD","CDUCvsNonIBD")
 label <- strsplit(contrast," vs ")[[1]][1]
@@ -159,7 +159,7 @@ DA_vis <- function(DA_method, alpha){
        'Stable')
   volcano$delabel <- NA
   volcano$delabel <- ifelse(volcano$Expression != "Stable", volcano$taxon, volcano$delabel)
-  volcano$Significance <- "Insig"
+  volcano$Significance <- "Insignificant"
   for (tx in unique(volcano$taxon)) {
     for (ds in unique(volcano$Dataset)) {
       if(sum(volcano$taxon == tx & volcano$Dataset == ds) == 0){next}
@@ -194,7 +194,7 @@ DA_vis <- function(DA_method, alpha){
                                       label = label, shape = Expression))+
               geom_point(alpha = 0.8, size = ifelse(is.na(volcano$delabel), 1, 2)) +
               ggrepel::geom_text_repel(size=2) + 
-              scale_color_manual(values = c("16S only" = "darkgreen", "Insig" = "grey", "WTS only" = "blue", "Shared"= "red"))+
+              scale_color_manual(values = c("16S only" = "darkgreen", "Insignificant" = "grey", "WTS only" = "blue", "Shared"= "red"))+
               scale_shape_manual(values = c( "Down" = "square", "Stable" = "circle", "Up" = "diamond" )) +
               geom_vline(xintercept = c(-1, 1), lty = 4, col = "black", lwd = 0.8) +
               geom_hline(yintercept = -log10(alpha), lty = 4, col = "black", lwd = 0.8) +

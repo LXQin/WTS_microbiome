@@ -87,9 +87,17 @@ Wrench_M_WTS = readRDS("Wrench_M_WTS.rds")
 ## 0. Heatmap of matched and filtered samples
 ```{r, heatmaps of log2counts}
 col_fun <- colorRamp2(c(0,14), c("turquoise", "orangered"))
-
+mean(Matched_M_16S@sam_data$Run==colnames(M_16S_matched))
+mean(Filtered_M_16S@sam_data$Run==colnames(M_16S_filter))
 # Create the heatmap with row and column splits, color scale, and specified data range
-heat_matched <- Heatmap(cbind(log2(M_16S_matched+1), log2(M_WTS_matched+1)),
+heat_diagnosis_matched <- sort(Matched_M_16S@sam_data$diagnosis)
+heat_16S_matched <- M_16S_matched[,Matched_M_16S@sam_data$Run[order(Matched_M_16S@sam_data$diagnosis)]]
+heat_WTS_matched <- M_WTS_matched[,colnames(heat_16S_matched)]
+col_annotation <- HeatmapAnnotation(Diagnosis = rep(heat_diagnosis_matched, 2), 
+                                    show_annotation_name = FALSE,
+                                    col = list(Diagnosis=c("nonIBD" = "goldenrod", "CD" = "cornflowerblue", "UC" = "salmon")),
+                                    annotation_legend_param = list(legend_direction = "horizontal", nrow = 1))
+heat_matched <- Heatmap(cbind(log2(heat_16S_matched+1), log2(heat_WTS_matched+1)),
         name = "log2(count+1)",
         column_split = rep(c("16S Matched","WTS Matched"), c(ncol(M_16S_matched), ncol(M_WTS_matched))),  # Split columns
         col = col_fun,             # Specify color scale
@@ -98,9 +106,18 @@ heat_matched <- Heatmap(cbind(log2(M_16S_matched+1), log2(M_WTS_matched+1)),
         cluster_rows = FALSE,
         cluster_columns = FALSE,
         row_names_gp = gpar(fontsize = 3),
+        top_annotation = col_annotation,
         heatmap_legend_param = list(legend_direction = "horizontal")
 )
-heat_filtered <- Heatmap(cbind(log2(M_16S_filter+1), log2(M_WTS_filter+1)),
+
+heat_diagnosis_filtered <- sort(Filtered_M_16S@sam_data$diagnosis)
+heat_16S_filterd <- M_16S_filter[,Filtered_M_16S@sam_data$Run[order(Filtered_M_16S@sam_data$diagnosis)]]
+heat_WTS_filterd <- M_WTS_filter[,colnames(heat_16S_filterd)]
+col_annotation <- HeatmapAnnotation(Diagnosis = rep(heat_diagnosis_filtered, 2), 
+                                    show_annotation_name = FALSE, 
+                                    col = list(Diagnosis=c("nonIBD" = "goldenrod", "CD" = "cornflowerblue", "UC" = "salmon")),
+                                    annotation_legend_param = list(legend_direction = "horizontal", nrow = 1))
+heat_filtered <- Heatmap(cbind(log2(heat_16S_filterd+1), log2(heat_WTS_filterd+1)),
         name = "log2(count+1)",
         column_split = rep(c("16S Filtered","WTS Filtered"), c(ncol(M_16S_filter), ncol(M_WTS_filter))),  # Split columns
         col = col_fun,             # Specify color scale
@@ -109,14 +126,15 @@ heat_filtered <- Heatmap(cbind(log2(M_16S_filter+1), log2(M_WTS_filter+1)),
         cluster_rows = FALSE,
         cluster_columns = FALSE,
         row_names_gp = gpar(fontsize = 3),
+        top_annotation = col_annotation,
         heatmap_legend_param = list(legend_direction = "horizontal")
 )
 pdf("../Figures/Heatmap_log2Count_Matched.pdf", width = 8, height = 8) 
-draw(heat_matched,  heatmap_legend_side = "bottom") 
+draw(heat_matched,  merge_legend = TRUE, heatmap_legend_side = "bottom",annotation_legend_side = "bottom") 
 dev.off()
 
 pdf("../Figures/Heatmap_log2Count_Filtered.pdf", width = 8, height = 8) 
-draw(heat_filtered,  heatmap_legend_side = "bottom") 
+draw(heat_filtered,  merge_legend = TRUE, heatmap_legend_side = "bottom",annotation_legend_side = "bottom")
 dev.off()
 ```
 
@@ -128,12 +146,14 @@ p_wts <- ggplot(data = data.frame(WTS = log2(unlist(c(M_WTS_raw))+1)), aes(x = W
   geom_histogram(aes(y = after_stat(count / sum(count))))+
   labs( x = "log2(count+1)", y = "WTS Proportions") +
   ylim(0,1)+
+  xlim(-1,15)+
   theme_classic()
 
 p_16s <- ggplot(data = data.frame(S16 = log2(unlist(c(M_16S_raw))+1)), aes(x = S16))+
   geom_histogram(aes(y = after_stat(count / sum(count))))+
   labs( x = "log2(count+1)", y = "16S Proportions") +
   ylim(0,1)+
+  xlim(-1,15)+
   theme_classic()
 
 
@@ -180,7 +200,9 @@ p_filter_median <- ggplot(med_filter, aes(x = M_16S, y = M_WTS, color = "black")
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
   theme(plot.title = element_text(hjust = 0.5),legend.position = "none")+
   theme_classic()+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  xlim(0, 13)+
+  ylim(0, 8)
 
 # generate scatter plot comparing the filtered log2-transformed WTS and 16S read counts' mean.
 p_filter_mean <- ggplot(mean_filter, aes(x = M_16S, y = M_WTS, color = "black")) + 
@@ -190,7 +212,9 @@ p_filter_mean <- ggplot(mean_filter, aes(x = M_16S, y = M_WTS, color = "black"))
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
   theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
   theme_classic()+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  xlim(0, 13)+
+  ylim(0, 8)
 
 # Save median_filter.pdf
 ggsave(p_filter_median, 
@@ -230,7 +254,9 @@ p_match_median <- ggplot(med_match, aes(x = M_16S, y = M_WTS, color = "black")) 
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
   theme(plot.title = element_text(hjust = 0.5),legend.position = "none")+
   theme_classic()+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  xlim(0, 13)+
+  ylim(0, 8)
 
 # generate scatter plot comparing the matched log2-transformed WTS and 16S read counts' mean.
 p_match_mean <- ggplot(mean_match, aes(x = M_16S, y = M_WTS, color = "black")) + 
@@ -240,7 +266,9 @@ p_match_mean <- ggplot(mean_match, aes(x = M_16S, y = M_WTS, color = "black")) +
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed")+ 
   theme(plot.title = element_text(hjust = 0.5),legend.position = "none") +
   theme_classic()+
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  xlim(0, 13)+
+  ylim(0, 8)
 
 ggsave(p_match_median, 
        filename="../Figures/median_match.pdf",
@@ -485,7 +513,9 @@ richness_16S_raw <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_s
   labs(x = "16S total reads", y = "16S observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0, 40000)+
+  ylim(0, 410)
 
 
 richness_WTS_raw <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Raw_M_WTS),
@@ -496,7 +526,9 @@ richness_WTS_raw <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_s
   labs(x = "WTS total reads", y = "WTS observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0, 40000)+
+  ylim(0, 410)
 
 ggsave(filename="../Figures/rich_read_raw.pdf",ggarrange(richness_16S_raw, richness_WTS_raw, nrow=2),
        height=8, width=4)
@@ -524,7 +556,9 @@ richness_16S_match <- ggplot(data = data.frame("total_reads" =  phyloseq::sample
   labs(x = "16S total reads", y = "16S observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0,22000)+
+  ylim(0, 120)
 
 
 richness_WTS_match <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Matched_M_WTS),
@@ -535,7 +569,9 @@ richness_WTS_match <- ggplot(data = data.frame("total_reads" =  phyloseq::sample
   labs(x = "WTS total reads", y = "WTS observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0,22000)+
+  ylim(0, 120)
 
 ggsave(filename="../Figures/rich_read_match.pdf",ggarrange(richness_16S_match, richness_WTS_match, nrow=2),
        height=8, width=4)
@@ -547,13 +583,15 @@ ggsave(filename="../Figures/rich_read_match.pdf",ggarrange(richness_16S_match, r
 
 richness_16S_filter <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_16S),
                          "observed" = phyloseq::estimate_richness(Filtered_M_16S, measures = "Observed")[, 1]),
-       aes(x = total_reads, y = (observed))) +
+       aes(x = total_reads, y = observed)) +
   geom_point() +
   geom_smooth(method="loess", se = FALSE, span=0.5) +
   labs(x = "16S total reads", y = "16S observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0,27000)+
+  ylim(0,60)
 
 
 richness_WTS_filter <- ggplot(data = data.frame("total_reads" =  phyloseq::sample_sums(Filtered_M_WTS),
@@ -564,7 +602,9 @@ richness_WTS_filter <- ggplot(data = data.frame("total_reads" =  phyloseq::sampl
   labs(x = "WTS total reads", y = "WTS observed richness") +
   theme(plot.title=element_text(size=9, hjust=0.5)) +
   theme_bw()+
-  scale_x_continuous(labels = scales::scientific_format())
+  scale_x_continuous(labels = scales::scientific_format())+
+  xlim(0,27000)+
+  ylim(0,60)
 
 ggsave(filename="../Figures/rich_read_filter.pdf",
        ggarrange(richness_16S_filter,richness_WTS_filter, nrow=2),

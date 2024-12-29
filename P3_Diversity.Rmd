@@ -164,7 +164,9 @@ p2 <- ggplot(chao1_2, aes(x = Dataset, y = diversity)) +
             size = 5, vjust = -19.5)+
   scale_fill_aaas()
 
-p_upper <- p1 + plot_spacer() + p2 + plot_layout(nrow = 1, widths = c(1, 0.4, 9))
+p_upper <- (p1 + theme(plot.margin = unit(c(0,1,0,0), "pt"))) +
+  (p2 + theme(plot.margin = unit(c(0,0,0,1), "pt")))+
+  plot_layout(widths = c(1, 9))
 
 shannon <- alpha_df[alpha_df$alpha_type == "Shannon index" ,]
 
