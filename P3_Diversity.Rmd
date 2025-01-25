@@ -1,5 +1,7 @@
 ---
 title: "Alpha/Beta Diversity"
+author: "Ying Xiang"
+date: "2024-02-14"
 output: html_document
 ---
 
@@ -64,10 +66,11 @@ Wrench_M_WTS = readRDS("Wrench_M_WTS.rds")
 
 ```{r compute alpha diversity values}
 Datasets <- c("Raw","Matched","Filtered", "TSS","TMM","CSS","DRP","DV", "GMPR","Wrench")
-alpha_df <- setNames(data.frame(matrix(ncol = 5, nrow = 0)), c("sample",  "diversity", "alpha_type", "Platform", "Dataset"))
+alpha_df <- setNames(data.frame(matrix(ncol = 6, nrow = 0)), c("sample",  "diversity", "alpha_type", "Platform", "Dataset", "Diagnosis"))
 for (type in c("16S","WTS")){
   for(dataset in Datasets){
-    eval(parse(text  =  paste0("ps = ", dataset, "_M_", type)))
+    for (Diagnosis in c("CD","UC","nonIBD")){
+    eval(parse(text  =  paste0("ps <- subset_samples(",dataset, "_M_", type,", diagnosis == '",Diagnosis,"')")))
     count_dat <- round(ps@otu_table@.Data)
     chao <- estimateR(t(count_dat))["S.chao1",]
     shannon <- diversity(t(count_dat), index = "shannon")
@@ -75,12 +78,15 @@ for (type in c("16S","WTS")){
                                            diversity = chao,
                                            alpha_type = "Chao1 index",
                                            Platform = type,
-                                           Dataset = dataset))
+                                           Dataset = dataset,
+                                           Diagnosis = Diagnosis))
     alpha_df <- rbind(alpha_df, data.frame(sample = names(shannon),
                                            diversity = shannon,
                                            alpha_type = "Shannon index",
                                            Platform = type,
-                                           Dataset = dataset))
+                                           Dataset = dataset,
+                                           Diagnosis = Diagnosis))
+    }
   }
   }
 
@@ -91,6 +97,7 @@ alpha_df$Dataset <- factor(alpha_df$Dataset, levels = c("Raw", "Matched", "Filte
                                                             "CSS", "DRP", "DV", "GMPR",  "Wrench"),
                               labels =  c("Raw", "Matched", "Filtered", "F-TSS", "F-TMM", "F-CSS", 
                                           "F-GMPR",  "F-DESeq_RLE", "F-DESeq_VS", "F-Wrench"))
+alpha_df$Diagnosis <- factor(alpha_df$Diagnosis, levels = c("CD","UC","nonIBD"), labels = c("CD","UC","nonIBD"))
 
 alpha_df_med <- alpha_df %>% group_by(alpha_type, Platform, Dataset) %>% summarise(median = round(median(diversity),4), sd = round(sd(diversity),4))
 pivot_wider(alpha_df_med, names_from = "Platform", values_from = c("median","sd"))
@@ -184,7 +191,98 @@ p3 <- ggplot(shannon, aes(x = Dataset, y = diversity)) +
   scale_fill_aaas()
 p3
 p_alpha <- p_upper / p3 + plot_layout(heights = c(1, 1))
-ggsave(p_alpha, filename = paste0("../Figures/Alpha_boxplot.pdf"), width = 12, height = 8, units = "in")
+ggsave(p_alpha, filename = paste0("../Figures/Alpha_boxplot2.pdf"), width = 12, height = 8, units = "in")
+
+
+
+# Relative magnitude between samples
+# check sample order for 16S and WTS
+mean(alpha_df[alpha_df$alpha_type == "Chao1 index" & alpha_df$Dataset== "Filtered" & alpha_df$Platform == "16S","sample"] == alpha_df[alpha_df$alpha_type == "Chao1 index" & alpha_df$Dataset== "Filtered" & alpha_df$Platform == "WTS","sample"])
+alpha_df_wide <- pivot_wider(alpha_df, names_from = "Platform", values_from = "diversity", names_prefix = "diversity_")
+Spearman_results <- alpha_df_wide %>%
+  group_by(alpha_type, Dataset) %>%
+  summarise(
+    Spearman_test_p_value = cor.test(
+      diversity_16S, 
+      diversity_WTS, 
+      method = "spearman",
+      exact = FALSE
+    )$p.value,
+    Spearman_correlation = round(cor.test(
+      diversity_16S, 
+      diversity_WTS, 
+      method = "spearman",
+      exact = FALSE
+    )$estimate, 3),
+    .groups = "drop" 
+  )
+
+Spearman_results <- left_join(Spearman_results, alpha_df_wide %>% group_by(alpha_type, Dataset) %>% summarise(xpos= mean(range(diversity_16S)) ), by = c("alpha_type","Dataset")) 
+
+
+pg1 <- ggplot(alpha_df[alpha_df$alpha_type == "Chao1 index",], aes(x = Platform, y = diversity)) +
+  geom_boxplot(aes(fill = Diagnosis),width = 0.75) +
+  facet_wrap(vars(Dataset), scale = "free", ncol = 5)+
+  labs(y = "Chao1 Index")+
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.x = element_blank()
+    # axis.text.x = element_blank()
+  )+
+  geom_text(data = Welch_results[Welch_results$alpha_type == "Chao1 index",], aes(x = 1.5, y = 0, label = signif), 
+            size = 5, vjust = "top")+
+  scale_fill_npg()
+
+pg2 <- ggplot(alpha_df[alpha_df$alpha_type != "Chao1 index",], aes(x = Platform, y = diversity)) +
+  geom_boxplot(aes(fill = Diagnosis),na.rm = TRUE,width = 0.75) +
+  facet_wrap(vars(Dataset), scale = "free", ncol = 5)+
+  labs(y = "Shannon Index", fill = "")+
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.x = element_blank(),
+  )+
+  geom_text(data = Welch_results[Welch_results$alpha_type != "Chao1 index",], aes(x = 1.5, y = 0, label = signif), 
+            size = 5, vjust = "top")+
+  scale_fill_npg()
+
+
+
+ppoint1 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type == "Chao1 index",], aes(x = diversity_16S, y = diversity_WTS)) +
+  geom_point(aes(color = Diagnosis)) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.5, color = "black")+
+  facet_wrap(vars(Dataset),scale = "free", ncol=5)+
+  geom_abline(slope=1, intercept = 0, color = "gray", linetype = "dashed", show.legend = TRUE)+
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank()
+    # axis.text.x = element_blank()
+  )+
+  geom_text(data = Spearman_results[Spearman_results$alpha_type == "Chao1 index",], aes(x = xpos, y = 0, label = Spearman_correlation), 
+            size = 5, vjust = "bottom")+
+  scale_fill_npg()
+ppoint2 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type != "Chao1 index",], aes(x = diversity_16S, y = diversity_WTS)) +
+  geom_point(aes(color = Diagnosis)) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.5, color = "black")+
+  facet_wrap(vars(Dataset),scale = "free", ncol=5)+
+  geom_abline(slope=1, intercept = 0, color = "gray", linetype = "dashed", show.legend = TRUE)+
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank()
+    # axis.text.x = element_blank()
+  )+
+  geom_text(data = Spearman_results[Spearman_results$alpha_type != "Chao1 index",], aes(x = xpos, y = 0, label = Spearman_correlation), 
+            size = 5, vjust = "bottom")+
+  scale_fill_npg()
+
+ggsave(ggarrange(pg1, pg2, nrow=2, common.legend = TRUE, legend = "bottom"), filename = paste0("../Figures/Alpha_group_boxplot.pdf"), width = 20, height = 15, units = "in")
+
+ggsave(ggarrange(ppoint1, ppoint2, nrow=2, common.legend = TRUE, legend = "bottom"), filename = paste0("../Figures/Alpha_scatter.pdf"), width = 20, height = 15, units = "in")
 ```
 
 # Beta diversity
