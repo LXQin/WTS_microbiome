@@ -258,13 +258,13 @@ ppoint1 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type == "Chao1 index",], aes
   labs(y = "Chao1 Index")+
   theme(
     legend.position = "bottom",
-    axis.title.y = element_blank(),
+    # axis.title.y = element_blank(),
     axis.title.x = element_blank()
     # axis.text.x = element_blank()
   )+
   geom_text(data = Spearman_results[Spearman_results$alpha_type == "Chao1 index",], aes(x = xpos, y = 0, label = Spearman_correlation), 
             size = 5, vjust = "bottom")+
-  scale_fill_npg()
+  scale_color_npg()
 ppoint2 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type != "Chao1 index",], aes(x = diversity_16S, y = diversity_WTS)) +
   geom_point(aes(color = Diagnosis)) +
   geom_smooth(method = "lm", se = FALSE, linewidth = 0.5, color = "black")+
@@ -274,13 +274,13 @@ ppoint2 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type != "Chao1 index",], aes
   labs(y = "Shannon Index")+
   theme(
     legend.position = "bottom",
-    axis.title.y = element_blank(),
+    # axis.title.y = element_blank(),
     axis.title.x = element_blank()
     # axis.text.x = element_blank()
   )+
   geom_text(data = Spearman_results[Spearman_results$alpha_type != "Chao1 index",], aes(x = xpos, y = 0, label = Spearman_correlation), 
             size = 5, vjust = "bottom")+
-  scale_fill_npg()
+  scale_color_npg()
 
 ggsave(ggarrange(pg1, pg2, nrow=2, common.legend = TRUE, legend = "bottom"), filename = paste0("../Figures/Alpha_group_boxplot.pdf"), width = 20, height = 15, units = "in")
 
