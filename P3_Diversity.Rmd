@@ -255,6 +255,7 @@ ppoint1 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type == "Chao1 index",], aes
   facet_wrap(vars(Dataset),scale = "free", ncol=5)+
   geom_abline(slope=1, intercept = 0, color = "gray", linetype = "dashed", show.legend = TRUE)+
   theme_bw() +
+  labs(y = "Chao1 Index")+
   theme(
     legend.position = "bottom",
     axis.title.y = element_blank(),
@@ -270,6 +271,7 @@ ppoint2 <- ggplot(alpha_df_wide[alpha_df_wide$alpha_type != "Chao1 index",], aes
   facet_wrap(vars(Dataset),scale = "free", ncol=5)+
   geom_abline(slope=1, intercept = 0, color = "gray", linetype = "dashed", show.legend = TRUE)+
   theme_bw() +
+  labs(y = "Shannon Index")+
   theme(
     legend.position = "bottom",
     axis.title.y = element_blank(),
